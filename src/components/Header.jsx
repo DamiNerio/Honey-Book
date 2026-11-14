@@ -12,9 +12,11 @@ export default function Header({
   lang,
   onChangeLang,
   user,
+  onOpenAuth,
   onLogout,
 }) {
   const t = (key, vars) => translate(lang, key, vars);
+  const isGuest = Boolean(!user || user.isGuest);
 
   const tabs = [
     { id: 'directory', label: t('navDirectory'), count: counts.directory },
@@ -30,10 +32,10 @@ export default function Header({
           type="button"
           className="brand"
           onClick={() => onSelectTab('directory')}
-          aria-label="Book Violet"
+          aria-label="Honey Book"
         >
           <BrandMark size={26} />
-          <span className="brand__name">Book Violet</span>
+          <span className="brand__name">Honey Book</span>
         </button>
 
         <nav className="primary-nav" aria-label={t('navAriaLabel')}>
@@ -91,13 +93,26 @@ export default function Header({
             </button>
           </div>
 
-          {user && (
+          {isGuest ? (
+            <div className="account-pill account-pill--guest" title={t('guestModeHint')}>
+              <span className="account-pill__dot" aria-hidden="true" />
+              <span className="account-pill__name">{t('guestName')}</span>
+              <button
+                type="button"
+                id="open-auth-btn"
+                className="account-pill__action"
+                onClick={onOpenAuth}
+              >
+                {t('accountBtn')}
+              </button>
+            </div>
+          ) : (
             <div className="account-pill" title={t('signedInAs', { name: user.name })}>
               <span className="account-pill__name">{user.name}</span>
               <button
                 type="button"
                 id="logout-btn"
-                className="account-pill__logout"
+                className="account-pill__action"
                 onClick={onLogout}
               >
                 {t('signOut')}

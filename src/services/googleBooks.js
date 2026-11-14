@@ -3,7 +3,7 @@ const GOOGLE_BOOKS_CONFIG = {
   endpoint: 'https://www.googleapis.com/books/v1/volumes',
   maxResults: 12,
   printType: 'books',
-  apiKey: import.meta.env?.VITE_GOOGLE_BOOKS_API_KEY || '',
+  apiKey: import.meta.env.VITE_GOOGLE_BOOKS_API_KEY || '',
 };
 
 const searchCache = new Map();

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { translate } from '../i18n/translations';
-import { loginUser, registerUser } from '../utils/auth';
+import { continueAsGuest, loginUser, registerUser } from '../utils/auth';
 import { BrandMark } from './Icons';
 
 export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
@@ -19,6 +19,11 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
     setErrorKey('');
     setPassword('');
     setConfirmPassword('');
+  };
+
+  const handleContinueGuest = () => {
+    const guestUser = continueAsGuest();
+    onAuthenticated(guestUser);
   };
 
   const handleSubmit = async (e) => {
@@ -64,7 +69,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
       <div className="auth-topbar">
         <div className="brand">
           <BrandMark size={26} />
-          <span className="brand__name">Book Violet</span>
+          <span className="brand__name">Honey Book</span>
         </div>
 
         <div className="lang-switcher" role="group" aria-label={t('languageLabel')}>
@@ -99,6 +104,22 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
             <p className="auth-subtitle">
               {mode === 'login' ? t('authSubtitleLogin') : t('authSubtitleSignup')}
             </p>
+          </div>
+
+          <div className="auth-guest-hero">
+            <button
+              type="button"
+              id="auth-guest-btn"
+              className="btn btn--primary btn--full"
+              onClick={handleContinueGuest}
+            >
+              {t('authContinueGuest')}
+            </button>
+            <p className="auth-guest-note">{t('authGuestNote')}</p>
+          </div>
+
+          <div className="auth-divider">
+            <span>{t('authOrDivider')}</span>
           </div>
 
           <div className="auth-tabs" role="tablist">
@@ -186,7 +207,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
             <button
               type="submit"
               id="auth-submit-btn"
-              className="btn btn--primary btn--full"
+              className="btn btn--violet-outline btn--full"
               disabled={isSubmitting}
             >
               {mode === 'login' ? t('authLoginBtn') : t('authSignupBtn')}

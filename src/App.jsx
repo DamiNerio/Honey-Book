@@ -9,6 +9,7 @@ import Header from './components/Header';
 import ReadingView from './components/ReadingView';
 import SetPagesModal from './components/SetPagesModal';
 import WishlistView from './components/WishlistView';
+import { LITERARY_GENRES } from './data/genres';
 import { translate } from './i18n/translations';
 import {
   getCurrentUser,
@@ -20,29 +21,35 @@ import { computeLiveTimerSeconds, getCompletionPercentage } from './utils/format
 import {
   clearLegacySeedStorage,
   clearUserLibrary,
-  createEmptyLibrary,
   loadUserLibrary,
   saveUserLibrary,
 } from './utils/storage';
 
+const BUILT_IN_GENRE_IDS = new Set(LITERARY_GENRES.map((g) => g.id.toLowerCase()));
+
 export default function App() {
-  const [lang, setLang] = useState(() => getStoredLanguage());
-  const [user, setUser] = useState(() => {
+  const [initialBoot] = useState(() => {
     clearLegacySeedStorage();
-    return getCurrentUser();
+    const activeUser = getCurrentUser();
+    const fallbackLang = getStoredLanguage();
+    const loadedLibrary = loadUserLibrary(activeUser.id, fallbackLang);
+    const activeLang = loadedLibrary.language || fallbackLang;
+    return {
+      user: activeUser,
+      library: { ...loadedLibrary, language: activeLang },
+      lang: activeLang,
+    };
   });
 
-  const [library, setLibrary] = useState(() => {
-    const activeUser = getCurrentUser();
-    return activeUser ? loadUserLibrary(activeUser.id) : createEmptyLibrary();
-  });
+  const [user, setUser] = useState(initialBoot.user);
+  const [library, setLibrary] = useState(initialBoot.library);
+  const [lang, setLang] = useState(initialBoot.lang);
+  const [showAuthScreen, setShowAuthScreen] = useState(false);
 
   const [activeTab, setActiveTab] = useState('directory');
-  const [selectedReadingId, setSelectedReadingId] = useState(() => {
-    const activeUser = getCurrentUser();
-    const loaded = activeUser ? loadUserLibrary(activeUser.id) : createEmptyLibrary();
-    return Object.keys(loaded.reading)[0] || null;
-  });
+  const [selectedReadingId, setSelectedReadingId] = useState(
+    () => Object.keys(initialBoot.library.reading)[0] || null
+  );
 
   const [detailBook, setDetailBook] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -60,20 +67,39 @@ export default function App() {
     saveStoredLanguage(lang);
   }, [lang]);
 
-  // Persist current user's isolated library
+  // Persist current user's library (strictly under honey_book_guest_data in Guest Mode)
   useEffect(() => {
     if (!user?.id) return;
     saveUserLibrary(user.id, library);
   }, [user?.id, library]);
 
-  // Live timer ticker
+  // Lock background page scroll while any modal is open
+  useEffect(() => {
+    const hasOpenModal = Boolean(detailBook || isAddModalOpen || pendingPagesModal);
+    document.body.classList.toggle('has-open-modal', hasOpenModal);
+    return () => {
+      document.body.classList.remove('has-open-modal');
+    };
+  }, [detailBook, isAddModalOpen, pendingPagesModal]);
+
+  // Live timer ticker + immediate refresh when resuming WebView/tab
   useEffect(() => {
     if (!library.timer.isRunning) return undefined;
-    setNowMs(Date.now());
-    const interval = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 500);
-    return () => window.clearInterval(interval);
+    const syncNow = () => setNowMs(Date.now());
+    syncNow();
+    const interval = window.setInterval(syncNow, 500);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncNow();
+      }
+    };
+    window.addEventListener('focus', syncNow);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', syncNow);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [library.timer.isRunning]);
 
   // Auto-dismiss toast
@@ -114,28 +140,46 @@ export default function App() {
     setToast({ id: Date.now(), key, vars, actionKey, onAction });
   };
 
+  const handleChangeLang = (nextLang) => {
+    const resolved = nextLang === 'es' ? 'es' : 'en';
+    setLang(resolved);
+    saveStoredLanguage(resolved);
+    setLibrary((prev) =>
+      prev.language === resolved ? prev : { ...prev, language: resolved }
+    );
+  };
+
   const handleAuthenticated = (authenticatedUser) => {
-    const userLib = loadUserLibrary(authenticatedUser.id);
+    const userLib = loadUserLibrary(authenticatedUser.id, lang);
+    const nextLang = userLib.language || lang;
     setUser(authenticatedUser);
-    setLibrary(userLib);
+    setLibrary({ ...userLib, language: nextLang });
+    setLang(nextLang);
+    saveStoredLanguage(nextLang);
     setSelectedReadingId(Object.keys(userLib.reading)[0] || null);
     setActiveTab('directory');
     setDetailBook(null);
     setIsAddModalOpen(false);
     setPendingPagesModal(null);
     setToast(null);
+    setShowAuthScreen(false);
   };
 
   const handleLogout = () => {
-    logoutUser();
-    setUser(null);
-    setLibrary(createEmptyLibrary());
-    setSelectedReadingId(null);
+    const guestUser = logoutUser();
+    const guestLib = loadUserLibrary(guestUser.id, lang);
+    const nextLang = guestLib.language || lang;
+    setUser(guestUser);
+    setLibrary({ ...guestLib, language: nextLang });
+    setLang(nextLang);
+    saveStoredLanguage(nextLang);
+    setSelectedReadingId(Object.keys(guestLib.reading)[0] || null);
     setActiveTab('directory');
     setDetailBook(null);
     setIsAddModalOpen(false);
     setPendingPagesModal(null);
     setToast(null);
+    setShowAuthScreen(false);
   };
 
   const ensureBookInList = (booksList, bookObj) => {
@@ -185,6 +229,7 @@ export default function App() {
             ...prev.reading,
             [bookWithPages.id]: {
               currentPage: 0,
+              completionPercentage: 0,
               startedAt: new Date().toISOString(),
               sessions: [],
             },
@@ -271,7 +316,17 @@ export default function App() {
         };
       }
 
-      return { ...prev, books: nextBooks };
+      return {
+        ...prev,
+        books: nextBooks,
+        reading: {
+          ...prev.reading,
+          [book.id]: {
+            ...entry,
+            completionPercentage: getCompletionPercentage(entry.currentPage, pageCount),
+          },
+        },
+      };
     });
 
     if (completedNow) {
@@ -293,12 +348,28 @@ export default function App() {
     setActiveTab(tab);
   };
 
-  const handleAddCustomBook = (newBook, addToWishlist) => {
-    setLibrary((prev) => ({
-      ...prev,
-      books: [newBook, ...prev.books],
-      wishlistIds: addToWishlist ? [newBook.id, ...prev.wishlistIds] : prev.wishlistIds,
-    }));
+  const handleAddCustomBook = (newBook, addToWishlist, isCustomGenre = false) => {
+    const rawGenre = (newBook.genre || '').trim();
+
+    setLibrary((prev) => {
+      const existingCustom = Array.isArray(prev.customGenres) ? prev.customGenres : [];
+      const alreadyKnown =
+        BUILT_IN_GENRE_IDS.has(rawGenre.toLowerCase()) ||
+        existingCustom.some((g) => g.toLowerCase() === rawGenre.toLowerCase());
+
+      const nextCustomGenres =
+        isCustomGenre && rawGenre && !alreadyKnown
+          ? [...existingCustom, rawGenre]
+          : existingCustom;
+
+      return {
+        ...prev,
+        books: [newBook, ...prev.books],
+        wishlistIds: addToWishlist ? [newBook.id, ...prev.wishlistIds] : prev.wishlistIds,
+        customGenres: nextCustomGenres,
+      };
+    });
+
     showToast(
       addToWishlist ? 'toastAddedCustomWishlist' : 'toastAddedCustom',
       { title: newBook.title }
@@ -371,6 +442,7 @@ export default function App() {
 
     const updatedSessions = [...entry.sessions, newSession];
     const isCompleted = clampedEnd >= book.totalPages;
+    const nextPct = getCompletionPercentage(clampedEnd, book.totalPages);
 
     setLibrary((prev) => {
       const nextTimer = clearTimer
@@ -417,6 +489,7 @@ export default function App() {
           [bookId]: {
             ...entry,
             currentPage: clampedEnd,
+            completionPercentage: nextPct,
             sessions: updatedSessions,
           },
         },
@@ -434,8 +507,7 @@ export default function App() {
         () => setActiveTab('completed')
       );
     } else {
-      const pct = getCompletionPercentage(clampedEnd, book.totalPages);
-      showToast('toastSessionLogged', { title: book.title, pct });
+      showToast('toastSessionLogged', { title: book.title, pct: nextPct });
     }
   };
 
@@ -463,7 +535,7 @@ export default function App() {
       setConfirmClear(true);
       return;
     }
-    const fresh = clearUserLibrary(user?.id);
+    const fresh = clearUserLibrary(user?.id, lang);
     setLibrary(fresh);
     setSelectedReadingId(null);
     setConfirmClear(false);
@@ -471,11 +543,11 @@ export default function App() {
     showToast('toastLibraryCleared');
   };
 
-  if (!user) {
+  if (showAuthScreen) {
     return (
       <AuthScreen
         lang={lang}
-        onChangeLang={setLang}
+        onChangeLang={handleChangeLang}
         onAuthenticated={handleAuthenticated}
       />
     );
@@ -495,8 +567,9 @@ export default function App() {
         timerIsRunning={library.timer.isRunning}
         timerBookTitle={timerBook?.title}
         lang={lang}
-        onChangeLang={setLang}
+        onChangeLang={handleChangeLang}
         user={user}
+        onOpenAuth={() => setShowAuthScreen(true)}
         onLogout={handleLogout}
       />
 
@@ -559,7 +632,7 @@ export default function App() {
       </main>
 
       <footer className="app-footer">
-        <span>Book Violet · {t('footerPrivacy')}</span>
+        <span>Honey Book · {t('footerPrivacy')}</span>
         <button
           type="button"
           id="clear-library-btn"
@@ -605,6 +678,7 @@ export default function App() {
       <AddBookModal
         isOpen={isAddModalOpen}
         lang={lang}
+        customGenres={library.customGenres}
         onClose={() => setIsAddModalOpen(false)}
         onAddBook={handleAddCustomBook}
       />

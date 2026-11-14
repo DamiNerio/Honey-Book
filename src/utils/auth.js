@@ -1,6 +1,14 @@
-const USERS_KEY = 'book-violet-users-v2';
-const SESSION_KEY = 'book-violet-session-v2';
-const LANG_KEY = 'book-violet-lang-v2';
+import { loadGuestLanguage } from './storage';
+
+const USERS_KEY = 'honey_book_users';
+const SESSION_KEY = 'honey_book_session';
+const LANG_KEY = 'honey_book_language';
+
+export const GUEST_USER = Object.freeze({
+  id: 'guest',
+  accountKey: 'guest',
+  isGuest: true,
+});
 
 function loadUsersMap() {
   try {
@@ -33,7 +41,6 @@ async function hashPassword(password, salt) {
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
   }
-  // Fallback deterministic digest if WebCrypto subtle is unavailable
   let hash = 2166136261;
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i);
@@ -49,7 +56,11 @@ export function normalizeAccountKey(emailOrUsername) {
 export function getStoredLanguage() {
   try {
     const saved = window.localStorage.getItem(LANG_KEY);
-    return saved === 'es' ? 'es' : 'en';
+    if (saved === 'es' || saved === 'en') {
+      return saved;
+    }
+    const guestLang = loadGuestLanguage();
+    return guestLang === 'es' ? 'es' : 'en';
   } catch {
     return 'en';
   }
@@ -63,22 +74,45 @@ export function saveStoredLanguage(lang) {
   }
 }
 
+export function isGuestUser(user) {
+  return Boolean(!user || user.isGuest || user.id === 'guest');
+}
+
+export function continueAsGuest() {
+  try {
+    window.localStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ isGuest: true, accountKey: 'guest' })
+    );
+  } catch {
+    // Ignore storage errors
+  }
+  return { ...GUEST_USER };
+}
+
 export function getCurrentUser() {
   try {
     const rawSession = window.localStorage.getItem(SESSION_KEY);
-    if (!rawSession) return null;
-    const { accountKey } = JSON.parse(rawSession);
-    if (!accountKey) return null;
+    if (!rawSession) {
+      return { ...GUEST_USER };
+    }
+    const parsed = JSON.parse(rawSession);
+    if (!parsed || parsed.isGuest || !parsed.accountKey || parsed.accountKey === 'guest') {
+      return { ...GUEST_USER };
+    }
     const users = loadUsersMap();
-    const record = users[accountKey];
-    if (!record) return null;
+    const record = users[parsed.accountKey];
+    if (!record) {
+      return { ...GUEST_USER };
+    }
     return {
       id: record.id,
       name: record.name,
-      accountKey,
+      accountKey: parsed.accountKey,
+      isGuest: false,
     };
   } catch {
-    return null;
+    return { ...GUEST_USER };
   }
 }
 
@@ -105,12 +139,13 @@ export async function registerUser({ name, email, password }) {
   };
 
   saveUsersMap(users);
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify({ accountKey: key }));
+  window.localStorage.setItem(SESSION_KEY, JSON.stringify({ accountKey: key, isGuest: false }));
 
   return {
     id,
     name: cleanName,
     accountKey: key,
+    isGuest: false,
   };
 }
 
@@ -128,19 +163,16 @@ export async function loginUser({ email, password }) {
     throw new Error('authErrInvalid');
   }
 
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify({ accountKey: key }));
+  window.localStorage.setItem(SESSION_KEY, JSON.stringify({ accountKey: key, isGuest: false }));
 
   return {
     id: record.id,
     name: record.name,
     accountKey: key,
+    isGuest: false,
   };
 }
 
 export function logoutUser() {
-  try {
-    window.localStorage.removeItem(SESSION_KEY);
-  } catch {
-    // Ignore errors
-  }
+  return continueAsGuest();
 }

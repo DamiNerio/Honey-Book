@@ -3,10 +3,17 @@ import { GENRE_GROUPS, LITERARY_GENRES } from '../data/genres';
 import { translate } from '../i18n/translations';
 import { CloseIcon } from './Icons';
 
-export default function AddBookModal({ isOpen, lang, onClose, onAddBook }) {
+export default function AddBookModal({
+  isOpen,
+  lang,
+  customGenres = [],
+  onClose,
+  onAddBook,
+}) {
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [genre, setGenre] = useState('Literary Fiction');
+  const [customGenreInput, setCustomGenreInput] = useState('');
   const [totalPages, setTotalPages] = useState('280');
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [cover, setCover] = useState('');
@@ -27,10 +34,16 @@ export default function AddBookModal({ isOpen, lang, onClose, onAddBook }) {
 
   if (!isOpen) return null;
 
+  const builtInIds = new Set(LITERARY_GENRES.map((g) => g.id.toLowerCase()));
+  const extraGenres = customGenres.filter(
+    (g) => typeof g === 'string' && g.trim() && !builtInIds.has(g.trim().toLowerCase())
+  );
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const cleanTitle = title.trim();
     const cleanAuthor = author.trim();
+    const finalGenre = genre === '__custom__' ? customGenreInput.trim() : genre;
     const pagesNum = parseInt(totalPages, 10);
     const yearNum = parseInt(year, 10) || new Date().getFullYear();
 
@@ -40,6 +53,10 @@ export default function AddBookModal({ isOpen, lang, onClose, onAddBook }) {
     }
     if (!cleanAuthor) {
       setErrorKey('addErrAuthor');
+      return;
+    }
+    if (genre === '__custom__' && !finalGenre) {
+      setErrorKey('addErrCustomGenre');
       return;
     }
     if (Number.isNaN(pagesNum) || pagesNum < 1 || pagesNum > 10000) {
@@ -52,18 +69,20 @@ export default function AddBookModal({ isOpen, lang, onClose, onAddBook }) {
         id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         title: cleanTitle,
         author: cleanAuthor,
-        genre,
+        genre: finalGenre,
         year: yearNum,
         totalPages: pagesNum,
         cover: cover.trim(),
         synopsis: synopsis.trim(),
       },
-      addToWishlist
+      addToWishlist,
+      genre === '__custom__'
     );
 
     setTitle('');
     setAuthor('');
     setGenre('Literary Fiction');
+    setCustomGenreInput('');
     setTotalPages('280');
     setYear(String(new Date().getFullYear()));
     setCover('');
@@ -132,8 +151,20 @@ export default function AddBookModal({ isOpen, lang, onClose, onAddBook }) {
               <select
                 id="add-book-genre"
                 value={genre}
-                onChange={(e) => setGenre(e.target.value)}
+                onChange={(e) => {
+                  setErrorKey('');
+                  setGenre(e.target.value);
+                }}
               >
+                {extraGenres.length > 0 && (
+                  <optgroup label={t('addGenreCustomGroup')}>
+                    {extraGenres.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
                 {GENRE_GROUPS.map((group) => (
                   <optgroup key={group.id} label={group[lang] || group.en}>
                     {LITERARY_GENRES.filter((item) => item.group === group.id).map((item) => (
@@ -143,6 +174,7 @@ export default function AddBookModal({ isOpen, lang, onClose, onAddBook }) {
                     ))}
                   </optgroup>
                 ))}
+                <option value="__custom__">{t('addGenreCustomOption')}</option>
               </select>
             </div>
 
@@ -171,6 +203,23 @@ export default function AddBookModal({ isOpen, lang, onClose, onAddBook }) {
               />
             </div>
           </div>
+
+          {genre === '__custom__' && (
+            <div className="field">
+              <label htmlFor="add-book-custom-genre">{t('addBookCustomGenreLabel')}</label>
+              <input
+                id="add-book-custom-genre"
+                type="text"
+                value={customGenreInput}
+                onChange={(e) => {
+                  setErrorKey('');
+                  setCustomGenreInput(e.target.value);
+                }}
+                placeholder={t('addBookCustomGenrePlaceholder')}
+                autoFocus
+              />
+            </div>
+          )}
 
           <div className="field">
             <label htmlFor="add-book-cover">{t('addBookCoverLabel')}</label>
