@@ -1,4 +1,4 @@
-const CACHE_NAME = 'honey-book-v1';
+const CACHE_NAME = 'honey-book-v2';
 const APP_SHELL_URLS = [
   './',
   './index.html',
@@ -60,7 +60,14 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
-  const url = new URL(request.url);
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return;
+  }
+
+  // Ignore external URLs (such as Google Books cover thumbnails and API calls)
   if (url.origin !== self.location.origin) return;
   if (isViteDevRequest(url)) return;
 
@@ -89,7 +96,7 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         })
-        .catch(() => cachedResponse);
+        .catch(() => cachedResponse || Response.error());
 
       return cachedResponse || networkFetch;
     })

@@ -47,6 +47,16 @@ jobs:
       - name: Sync Capacitor Android assets
         run: npx cap sync android
 
+      - name: Generate native Android app icons and splash screens
+        run: |
+          mkdir -p assets
+          cp public/icon-512.png assets/icon-only.png
+          cp public/icon-512.png assets/icon-foreground.png
+          cp public/icon-512.png assets/icon-background.png
+          cp public/icon-512.png assets/splash.png
+          cp public/icon-512.png assets/splash-dark.png
+          npx --yes @capacitor/assets generate --android --iconBackgroundColor '#0f0f14' --iconBackgroundColorDark '#0f0f14' --splashBackgroundColor '#0f0f14' --splashBackgroundColorDark '#0f0f14'
+
       - name: Build Android Debug APK
         run: |
           chmod +x android/gradlew

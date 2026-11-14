@@ -2,9 +2,9 @@
   "name": "Honey Book",
   "short_name": "Honey Book",
   "description": "Minimalist offline-first personal book tracker with search, wishlists, reading timer, and reviews.",
-  "id": "/",
-  "start_url": "/",
-  "scope": "/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f0f14",
@@ -12,22 +12,16 @@
   "categories": ["books", "productivity", "lifestyle"],
   "icons": [
     {
-      "src": "/favicon.svg",
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ]
 }
