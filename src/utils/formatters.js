@@ -42,14 +42,14 @@ export function getCompletionPercentage(currentPage, totalPages) {
 }
 
 /**
- * Format ISO timestamp into clean editorial date (e.g., "Nov 13, 2026").
+ * Format ISO timestamp into clean localized date.
  */
-export function formatDateShort(isoString) {
+export function formatDateShort(isoString, lang = 'en') {
   if (!isoString) return '';
   const date = new Date(isoString);
   if (Number.isNaN(date.getTime())) return '';
 
-  return date.toLocaleDateString('en-US', {
+  return date.toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 import AddBookModal from './components/AddBookModal';
-import ApiKeyModal from './components/ApiKeyModal';
+import AuthScreen from './components/AuthScreen';
 import BookDetailModal from './components/BookDetailModal';
 import CompletedView from './components/CompletedView';
 import DirectoryView from './components/DirectoryView';
@@ -9,31 +9,64 @@ import Header from './components/Header';
 import ReadingView from './components/ReadingView';
 import SetPagesModal from './components/SetPagesModal';
 import WishlistView from './components/WishlistView';
+import { translate } from './i18n/translations';
+import {
+  getCurrentUser,
+  getStoredLanguage,
+  logoutUser,
+  saveStoredLanguage,
+} from './utils/auth';
 import { computeLiveTimerSeconds, getCompletionPercentage } from './utils/formatters';
-import { clearLibraryState, loadLibraryState, saveLibraryState } from './utils/storage';
+import {
+  clearLegacySeedStorage,
+  clearUserLibrary,
+  createEmptyLibrary,
+  loadUserLibrary,
+  saveUserLibrary,
+} from './utils/storage';
 
 export default function App() {
-  const [library, setLibrary] = useState(() => loadLibraryState());
+  const [lang, setLang] = useState(() => getStoredLanguage());
+  const [user, setUser] = useState(() => {
+    clearLegacySeedStorage();
+    return getCurrentUser();
+  });
+
+  const [library, setLibrary] = useState(() => {
+    const activeUser = getCurrentUser();
+    return activeUser ? loadUserLibrary(activeUser.id) : createEmptyLibrary();
+  });
+
   const [activeTab, setActiveTab] = useState('directory');
   const [selectedReadingId, setSelectedReadingId] = useState(() => {
-    const initial = loadLibraryState();
-    return Object.keys(initial.reading)[0] || null;
+    const activeUser = getCurrentUser();
+    const loaded = activeUser ? loadUserLibrary(activeUser.id) : createEmptyLibrary();
+    return Object.keys(loaded.reading)[0] || null;
   });
 
   const [detailBook, setDetailBook] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
-  const [pendingPagesModal, setPendingPagesModal] = useState(null); // { book, mode: 'start' | 'edit' }
+  const [pendingPagesModal, setPendingPagesModal] = useState(null);
   const [toast, setToast] = useState(null);
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  // Persist every library change
-  useEffect(() => {
-    saveLibraryState(library);
-  }, [library]);
+  const t = (key, vars) => translate(lang, key, vars);
 
-  // Live timer ticker (timestamp-based so tab switches or refreshes never drift)
+  // Sync HTML lang attribute & document title
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    document.title = translate(lang, 'appTitle');
+    saveStoredLanguage(lang);
+  }, [lang]);
+
+  // Persist current user's isolated library
+  useEffect(() => {
+    if (!user?.id) return;
+    saveUserLibrary(user.id, library);
+  }, [user?.id, library]);
+
+  // Live timer ticker
   useEffect(() => {
     if (!library.timer.isRunning) return undefined;
     setNowMs(Date.now());
@@ -43,19 +76,19 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [library.timer.isRunning]);
 
-  // Auto-dismiss toast after 4.5s
+  // Auto-dismiss toast
   useEffect(() => {
     if (!toast) return undefined;
     const timeout = window.setTimeout(() => setToast(null), 4800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  // Auto-clear footer reset confirmation
+  // Auto-clear footer confirmation
   useEffect(() => {
-    if (!confirmReset) return undefined;
-    const timeout = window.setTimeout(() => setConfirmReset(false), 4000);
+    if (!confirmClear) return undefined;
+    const timeout = window.setTimeout(() => setConfirmClear(false), 4000);
     return () => window.clearTimeout(timeout);
-  }, [confirmReset]);
+  }, [confirmClear]);
 
   const liveTimerSeconds = useMemo(
     () => computeLiveTimerSeconds(library.timer, nowMs),
@@ -77,8 +110,32 @@ export default function App() {
     [library]
   );
 
-  const showToast = (message, actionLabel = null, onAction = null) => {
-    setToast({ id: Date.now(), message, actionLabel, onAction });
+  const showToast = (key, vars = {}, actionKey = null, onAction = null) => {
+    setToast({ id: Date.now(), key, vars, actionKey, onAction });
+  };
+
+  const handleAuthenticated = (authenticatedUser) => {
+    const userLib = loadUserLibrary(authenticatedUser.id);
+    setUser(authenticatedUser);
+    setLibrary(userLib);
+    setSelectedReadingId(Object.keys(userLib.reading)[0] || null);
+    setActiveTab('directory');
+    setDetailBook(null);
+    setIsAddModalOpen(false);
+    setPendingPagesModal(null);
+    setToast(null);
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setUser(null);
+    setLibrary(createEmptyLibrary());
+    setSelectedReadingId(null);
+    setActiveTab('directory');
+    setDetailBook(null);
+    setIsAddModalOpen(false);
+    setPendingPagesModal(null);
+    setToast(null);
   };
 
   const ensureBookInList = (booksList, bookObj) => {
@@ -113,9 +170,8 @@ export default function App() {
     });
 
     showToast(
-      alreadyWishlisted
-        ? `Removed “${targetBook.title}” from wishlist`
-        : `Saved “${targetBook.title}” to wishlist`
+      alreadyWishlisted ? 'toastRemovedWishlist' : 'toastAddedWishlist',
+      { title: targetBook.title }
     );
   };
 
@@ -144,7 +200,7 @@ export default function App() {
 
     setSelectedReadingId(bookWithPages.id);
     setActiveTab('reading');
-    showToast(`Started reading “${bookWithPages.title}”`);
+    showToast('toastStartedReading', { title: bookWithPages.title });
   };
 
   const handleStartReading = (bookOrId) => {
@@ -178,7 +234,6 @@ export default function App() {
       return;
     }
 
-    // Mode === 'edit' inside ReadingView
     let completedNow = false;
     setLibrary((prev) => {
       const nextBooks = ensureBookInList(prev.books, updatedBook);
@@ -221,12 +276,13 @@ export default function App() {
 
     if (completedNow) {
       showToast(
-        `Finished “${book.title}” · Moved to Completed`,
-        'View in Completed',
+        'toastFinishedBook',
+        { title: book.title },
+        'actViewCompleted',
         () => setActiveTab('completed')
       );
     } else {
-      showToast(`Updated “${book.title}” to ${pageCount} pages`);
+      showToast('toastUpdatedPages', { title: book.title, count: pageCount });
     }
   };
 
@@ -244,9 +300,8 @@ export default function App() {
       wishlistIds: addToWishlist ? [newBook.id, ...prev.wishlistIds] : prev.wishlistIds,
     }));
     showToast(
-      addToWishlist
-        ? `Added “${newBook.title}” to Directory & Wishlist`
-        : `Added “${newBook.title}” to Directory`
+      addToWishlist ? 'toastAddedCustomWishlist' : 'toastAddedCustom',
+      { title: newBook.title }
     );
   };
 
@@ -373,13 +428,14 @@ export default function App() {
       const remainingReadingIds = Object.keys(library.reading).filter((id) => id !== bookId);
       setSelectedReadingId(remainingReadingIds[0] || null);
       showToast(
-        `Finished “${book.title}” · Moved to Completed`,
-        'View in Completed',
+        'toastFinishedBook',
+        { title: book.title },
+        'actViewCompleted',
         () => setActiveTab('completed')
       );
     } else {
       const pct = getCompletionPercentage(clampedEnd, book.totalPages);
-      showToast(`Logged session for “${book.title}” · ${pct}% complete`);
+      showToast('toastSessionLogged', { title: book.title, pct });
     }
   };
 
@@ -399,31 +455,32 @@ export default function App() {
         },
       };
     });
-    showToast('Personal review saved');
+    showToast('toastReviewSaved');
   };
 
-  const handleSaveApiKey = (newKey) => {
-    setLibrary((prev) => ({
-      ...prev,
-      apiKey: newKey,
-    }));
-    showToast(newKey ? 'Google Books API key saved locally' : 'Cleared Google Books API key');
-  };
-
-  const handleResetLibrary = () => {
-    if (!confirmReset) {
-      setConfirmReset(true);
+  const handleClearLibrary = () => {
+    if (!confirmClear) {
+      setConfirmClear(true);
       return;
     }
-    const fresh = clearLibraryState();
+    const fresh = clearUserLibrary(user?.id);
     setLibrary(fresh);
-    setSelectedReadingId(Object.keys(fresh.reading)[0] || null);
-    setConfirmReset(false);
+    setSelectedReadingId(null);
+    setConfirmClear(false);
     setActiveTab('directory');
-    showToast('Library restored to starter shelf');
+    showToast('toastLibraryCleared');
   };
 
-  // Resolve detailBook from authoritative library state if already saved
+  if (!user) {
+    return (
+      <AuthScreen
+        lang={lang}
+        onChangeLang={setLang}
+        onAuthenticated={handleAuthenticated}
+      />
+    );
+  }
+
   const resolvedDetailBook = detailBook
     ? library.books.find((b) => b.id === detailBook.id) || detailBook
     : null;
@@ -437,6 +494,10 @@ export default function App() {
         liveTimerSeconds={liveTimerSeconds}
         timerIsRunning={library.timer.isRunning}
         timerBookTitle={timerBook?.title}
+        lang={lang}
+        onChangeLang={setLang}
+        user={user}
+        onLogout={handleLogout}
       />
 
       <main className="app-main">
@@ -446,13 +507,12 @@ export default function App() {
             wishlistIds={library.wishlistIds}
             readingMap={library.reading}
             completedMap={library.completed}
-            apiKey={library.apiKey}
+            lang={lang}
             onSelectBook={setDetailBook}
             onToggleWishlist={handleToggleWishlist}
             onStartReading={handleStartReading}
             onOpenSection={handleOpenSection}
             onOpenAddModal={() => setIsAddModalOpen(true)}
-            onOpenApiKeyModal={() => setIsApiKeyModalOpen(true)}
           />
         )}
 
@@ -460,6 +520,7 @@ export default function App() {
           <WishlistView
             books={library.books}
             wishlistIds={library.wishlistIds}
+            lang={lang}
             onToggleWishlist={handleToggleWishlist}
             onStartReading={handleStartReading}
             onSelectBook={setDetailBook}
@@ -475,6 +536,7 @@ export default function App() {
             onSelectReadingBook={setSelectedReadingId}
             timer={library.timer}
             liveTimerSeconds={liveTimerSeconds}
+            lang={lang}
             onStartTimer={handleStartTimer}
             onPauseTimer={handlePauseTimer}
             onResetTimer={handleResetTimer}
@@ -488,6 +550,7 @@ export default function App() {
           <CompletedView
             books={library.books}
             completedMap={library.completed}
+            lang={lang}
             onSaveReview={handleSaveReview}
             onSelectBook={setDetailBook}
             onBrowseDirectory={() => setActiveTab('directory')}
@@ -496,21 +559,21 @@ export default function App() {
       </main>
 
       <footer className="app-footer">
-        <span>Book Violet · Saved locally in your browser</span>
+        <span>Book Violet · {t('footerPrivacy')}</span>
         <button
           type="button"
-          id="reset-library-btn"
-          className={`footer-reset-btn ${confirmReset ? 'is-confirming' : ''}`}
-          onClick={handleResetLibrary}
+          id="clear-library-btn"
+          className={`footer-reset-btn ${confirmClear ? 'is-confirming' : ''}`}
+          onClick={handleClearLibrary}
         >
-          {confirmReset ? 'Click again to confirm reset' : 'Reset starter library'}
+          {confirmClear ? t('footerClearConfirm') : t('footerClearBtn')}
         </button>
       </footer>
 
       {toast && (
         <div className="toast-banner" role="status" aria-live="polite">
-          <span>{toast.message}</span>
-          {toast.actionLabel && toast.onAction && (
+          <span>{t(toast.key, toast.vars)}</span>
+          {toast.actionKey && toast.onAction && (
             <button
               type="button"
               className="toast-banner__action"
@@ -519,7 +582,7 @@ export default function App() {
                 setToast(null);
               }}
             >
-              {toast.actionLabel}
+              {t(toast.actionKey)}
             </button>
           )}
         </div>
@@ -532,6 +595,7 @@ export default function App() {
         }
         readingEntry={resolvedDetailBook ? library.reading[resolvedDetailBook.id] : null}
         completedEntry={resolvedDetailBook ? library.completed[resolvedDetailBook.id] : null}
+        lang={lang}
         onClose={() => setDetailBook(null)}
         onToggleWishlist={handleToggleWishlist}
         onStartReading={handleStartReading}
@@ -540,20 +604,15 @@ export default function App() {
 
       <AddBookModal
         isOpen={isAddModalOpen}
+        lang={lang}
         onClose={() => setIsAddModalOpen(false)}
         onAddBook={handleAddCustomBook}
-      />
-
-      <ApiKeyModal
-        isOpen={isApiKeyModalOpen}
-        apiKey={library.apiKey}
-        onClose={() => setIsApiKeyModalOpen(false)}
-        onSaveApiKey={handleSaveApiKey}
       />
 
       <SetPagesModal
         book={pendingPagesModal?.book || null}
         initialMode={pendingPagesModal?.mode || 'start'}
+        lang={lang}
         onClose={() => setPendingPagesModal(null)}
         onConfirm={handleConfirmPages}
       />

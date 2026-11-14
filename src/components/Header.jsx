@@ -1,5 +1,6 @@
-import { BrandMark, ClockIcon } from './Icons';
+import { translate } from '../i18n/translations';
 import { formatClock } from '../utils/formatters';
+import { BrandMark, ClockIcon } from './Icons';
 
 export default function Header({
   activeTab,
@@ -8,12 +9,18 @@ export default function Header({
   liveTimerSeconds,
   timerIsRunning,
   timerBookTitle,
+  lang,
+  onChangeLang,
+  user,
+  onLogout,
 }) {
+  const t = (key, vars) => translate(lang, key, vars);
+
   const tabs = [
-    { id: 'directory', label: 'Directory', count: counts.directory },
-    { id: 'wishlist', label: 'Wishlist', count: counts.wishlist },
-    { id: 'reading', label: 'Reading', count: counts.reading },
-    { id: 'completed', label: 'Completed', count: counts.completed },
+    { id: 'directory', label: t('navDirectory'), count: counts.directory },
+    { id: 'wishlist', label: t('navWishlist'), count: counts.wishlist },
+    { id: 'reading', label: t('navReading'), count: counts.reading },
+    { id: 'completed', label: t('navCompleted'), count: counts.completed },
   ];
 
   return (
@@ -23,13 +30,13 @@ export default function Header({
           type="button"
           className="brand"
           onClick={() => onSelectTab('directory')}
-          aria-label="Book Violet home"
+          aria-label="Book Violet"
         >
           <BrandMark size={26} />
           <span className="brand__name">Book Violet</span>
         </button>
 
-        <nav className="primary-nav" aria-label="Primary sections">
+        <nav className="primary-nav" aria-label={t('navAriaLabel')}>
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -48,21 +55,54 @@ export default function Header({
           })}
         </nav>
 
-        <div className="header-status">
-          {(timerIsRunning || liveTimerSeconds > 0) && activeTab !== 'reading' ? (
+        <div className="header-utilities">
+          {(timerIsRunning || liveTimerSeconds > 0) && activeTab !== 'reading' && (
             <button
               type="button"
               id="header-timer-pill"
               className={`timer-pill ${timerIsRunning ? 'is-running' : ''}`}
               onClick={() => onSelectTab('reading')}
-              title={timerBookTitle ? `Return to ${timerBookTitle}` : 'Return to reading session'}
+              title={timerBookTitle ? t('returnToBook', { title: timerBookTitle }) : ''}
             >
               <span className="timer-pill__dot" aria-hidden="true" />
               <ClockIcon size={13} />
               <span className="timer-pill__time">{formatClock(liveTimerSeconds)}</span>
             </button>
-          ) : (
-            <span className="header-caption">Reading Sanctuary</span>
+          )}
+
+          <div className="lang-switcher" role="group" aria-label={t('languageLabel')}>
+            <button
+              type="button"
+              id="lang-btn-en"
+              className={`lang-switcher__btn ${lang === 'en' ? 'is-active' : ''}`}
+              onClick={() => onChangeLang('en')}
+              aria-pressed={lang === 'en'}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              id="lang-btn-es"
+              className={`lang-switcher__btn ${lang === 'es' ? 'is-active' : ''}`}
+              onClick={() => onChangeLang('es')}
+              aria-pressed={lang === 'es'}
+            >
+              ES
+            </button>
+          </div>
+
+          {user && (
+            <div className="account-pill" title={t('signedInAs', { name: user.name })}>
+              <span className="account-pill__name">{user.name}</span>
+              <button
+                type="button"
+                id="logout-btn"
+                className="account-pill__logout"
+                onClick={onLogout}
+              >
+                {t('signOut')}
+              </button>
+            </div>
           )}
         </div>
       </div>

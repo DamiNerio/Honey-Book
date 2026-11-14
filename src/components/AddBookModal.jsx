@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { GENRES } from '../data/booksSeed';
+import { GENRE_GROUPS, LITERARY_GENRES } from '../data/genres';
+import { translate } from '../i18n/translations';
 import { CloseIcon } from './Icons';
 
-export default function AddBookModal({ isOpen, onClose, onAddBook }) {
+export default function AddBookModal({ isOpen, lang, onClose, onAddBook }) {
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [genre, setGenre] = useState('Literary Fiction');
@@ -11,7 +12,9 @@ export default function AddBookModal({ isOpen, onClose, onAddBook }) {
   const [cover, setCover] = useState('');
   const [synopsis, setSynopsis] = useState('');
   const [addToWishlist, setAddToWishlist] = useState(false);
-  const [error, setError] = useState('');
+  const [errorKey, setErrorKey] = useState('');
+
+  const t = (key, vars) => translate(lang, key, vars);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -32,30 +35,28 @@ export default function AddBookModal({ isOpen, onClose, onAddBook }) {
     const yearNum = parseInt(year, 10) || new Date().getFullYear();
 
     if (!cleanTitle) {
-      setError('Please enter a book title.');
+      setErrorKey('addErrTitle');
       return;
     }
     if (!cleanAuthor) {
-      setError('Please enter the author name.');
+      setErrorKey('addErrAuthor');
       return;
     }
-    if (Number.isNaN(pagesNum) || pagesNum < 1 || pagesNum > 5000) {
-      setError('Please enter a valid page count between 1 and 5000.');
+    if (Number.isNaN(pagesNum) || pagesNum < 1 || pagesNum > 10000) {
+      setErrorKey('addErrPages');
       return;
     }
 
     onAddBook(
       {
-        id: `custom-${Date.now()}`,
+        id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         title: cleanTitle,
         author: cleanAuthor,
         genre,
         year: yearNum,
         totalPages: pagesNum,
         cover: cover.trim(),
-        synopsis:
-          synopsis.trim() ||
-          `A personal edition of ${cleanTitle} by ${cleanAuthor}, added to your reading library.`,
+        synopsis: synopsis.trim(),
       },
       addToWishlist
     );
@@ -68,11 +69,9 @@ export default function AddBookModal({ isOpen, onClose, onAddBook }) {
     setCover('');
     setSynopsis('');
     setAddToWishlist(false);
-    setError('');
+    setErrorKey('');
     onClose();
   };
-
-  const genreOptions = GENRES.filter((g) => g !== 'All');
 
   return (
     <div
@@ -88,40 +87,40 @@ export default function AddBookModal({ isOpen, onClose, onAddBook }) {
           id="add-book-close"
           className="modal-close"
           onClick={onClose}
-          aria-label="Close add book form"
+          aria-label={t('close')}
         >
           <CloseIcon size={18} />
         </button>
 
         <div className="modal-header">
-          <span className="eyebrow-label">Custom Entry</span>
+          <span className="eyebrow-label">{t('addEyebrow')}</span>
           <h2 id="add-book-modal-title" className="modal-title">
-            Add Book to Directory
+            {t('addTitle')}
           </h2>
         </div>
 
         <form className="stack-form" onSubmit={handleSubmit} noValidate>
           <div className="form-grid-2">
             <div className="field">
-              <label htmlFor="add-book-title">Title</label>
+              <label htmlFor="add-book-title">{t('addBookTitleLabel')}</label>
               <input
                 id="add-book-title"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g., Solaris"
+                placeholder={t('addBookTitlePlaceholder')}
                 required
               />
             </div>
 
             <div className="field">
-              <label htmlFor="add-book-author">Author</label>
+              <label htmlFor="add-book-author">{t('addBookAuthorLabel')}</label>
               <input
                 id="add-book-author"
                 type="text"
                 value={author}
                 onChange={(e) => setAuthor(e.target.value)}
-                placeholder="e.g., Stanisław Lem"
+                placeholder={t('addBookAuthorPlaceholder')}
                 required
               />
             </div>
@@ -129,27 +128,31 @@ export default function AddBookModal({ isOpen, onClose, onAddBook }) {
 
           <div className="form-grid-3">
             <div className="field">
-              <label htmlFor="add-book-genre">Genre</label>
+              <label htmlFor="add-book-genre">{t('addBookGenreLabel')}</label>
               <select
                 id="add-book-genre"
                 value={genre}
                 onChange={(e) => setGenre(e.target.value)}
               >
-                {genreOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
+                {GENRE_GROUPS.map((group) => (
+                  <optgroup key={group.id} label={group[lang] || group.en}>
+                    {LITERARY_GENRES.filter((item) => item.group === group.id).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item[lang] || item.en}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
 
             <div className="field">
-              <label htmlFor="add-book-pages">Total Pages</label>
+              <label htmlFor="add-book-pages">{t('addBookPagesLabel')}</label>
               <input
                 id="add-book-pages"
                 type="number"
                 min="1"
-                max="5000"
+                max="10000"
                 value={totalPages}
                 onChange={(e) => setTotalPages(e.target.value)}
                 required
@@ -157,7 +160,7 @@ export default function AddBookModal({ isOpen, onClose, onAddBook }) {
             </div>
 
             <div className="field">
-              <label htmlFor="add-book-year">Year</label>
+              <label htmlFor="add-book-year">{t('addBookYearLabel')}</label>
               <input
                 id="add-book-year"
                 type="number"
@@ -170,24 +173,24 @@ export default function AddBookModal({ isOpen, onClose, onAddBook }) {
           </div>
 
           <div className="field">
-            <label htmlFor="add-book-cover">Cover Image URL (optional)</label>
+            <label htmlFor="add-book-cover">{t('addBookCoverLabel')}</label>
             <input
               id="add-book-cover"
               type="url"
               value={cover}
               onChange={(e) => setCover(e.target.value)}
-              placeholder="Leave blank for a minimalist clothbound cover"
+              placeholder={t('addBookCoverPlaceholder')}
             />
           </div>
 
           <div className="field">
-            <label htmlFor="add-book-synopsis">Synopsis</label>
+            <label htmlFor="add-book-synopsis">{t('addBookSynopsisLabel')}</label>
             <textarea
               id="add-book-synopsis"
               rows="3"
               value={synopsis}
               onChange={(e) => setSynopsis(e.target.value)}
-              placeholder="Short summary of the book's premise or themes..."
+              placeholder={t('addBookSynopsisPlaceholder')}
             />
           </div>
 
@@ -198,21 +201,21 @@ export default function AddBookModal({ isOpen, onClose, onAddBook }) {
               checked={addToWishlist}
               onChange={(e) => setAddToWishlist(e.target.checked)}
             />
-            <span>Also add directly to my Wishlist</span>
+            <span>{t('addBookWishlistCheck')}</span>
           </label>
 
-          {error && (
+          {errorKey && (
             <p className="form-error" role="alert">
-              {error}
+              {t(errorKey)}
             </p>
           )}
 
           <div className="modal-footer">
             <button type="button" className="btn btn--ghost" onClick={onClose}>
-              Cancel
+              {t('cancel')}
             </button>
             <button type="submit" id="add-book-submit" className="btn btn--primary">
-              Add to Directory
+              {t('addBookSubmit')}
             </button>
           </div>
         </form>

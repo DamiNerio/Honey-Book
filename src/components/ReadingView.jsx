@@ -1,4 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { translateGenre } from '../data/genres';
+import { translate } from '../i18n/translations';
+import {
+  formatClock,
+  formatDateShort,
+  formatDuration,
+  getCompletionPercentage,
+} from '../utils/formatters';
 import BookCover from './BookCover';
 import {
   ArrowRightIcon,
@@ -8,12 +16,6 @@ import {
   PlayIcon,
   ResetIcon,
 } from './Icons';
-import {
-  formatClock,
-  formatDateShort,
-  formatDuration,
-  getCompletionPercentage,
-} from '../utils/formatters';
 
 export default function ReadingView({
   books,
@@ -22,6 +24,7 @@ export default function ReadingView({
   onSelectReadingBook,
   timer,
   liveTimerSeconds,
+  lang,
   onStartTimer,
   onPauseTimer,
   onResetTimer,
@@ -29,6 +32,8 @@ export default function ReadingView({
   onEditBookPages,
   onBrowseDirectory,
 }) {
+  const t = (key, vars) => translate(lang, key, vars);
+
   const readingBooks = useMemo(
     () => books.filter((b) => Boolean(readingMap[b.id])),
     [books, readingMap]
@@ -41,14 +46,13 @@ export default function ReadingView({
   const [pageInput, setPageInput] = useState('');
   const [manualMinutes, setManualMinutes] = useState('');
   const [showManualTime, setShowManualTime] = useState(false);
-  const [error, setError] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // Clear stale input & error when switching active book
   useEffect(() => {
     setPageInput('');
     setManualMinutes('');
     setShowManualTime(false);
-    setError('');
+    setErrorMsg('');
   }, [activeBook?.id]);
 
   if (!activeBook || !activeEntry) {
@@ -56,23 +60,19 @@ export default function ReadingView({
       <section className="page-section" aria-labelledby="reading-heading">
         <div className="page-header">
           <div>
-            <span className="eyebrow-label">Session Room</span>
+            <span className="eyebrow-label">{t('readEyebrow')}</span>
             <h1 id="reading-heading" className="page-title">
-              Currently Reading
+              {t('readTitle')}
             </h1>
-            <p className="page-subtitle">
-              Track your page progress and time each reading session in calm focus.
-            </p>
+            <p className="page-subtitle">{t('readSubtitle')}</p>
           </div>
         </div>
 
         <div className="empty-state">
-          <p className="empty-state__title">No book currently in progress</p>
-          <p className="empty-state__desc">
-            Select a book from the Directory or your Wishlist to open your reading timer and log pages.
-          </p>
+          <p className="empty-state__title">{t('readEmptyTitle')}</p>
+          <p className="empty-state__desc">{t('readEmptyDesc')}</p>
           <button type="button" className="btn btn--primary" onClick={onBrowseDirectory}>
-            <span>Choose a Book</span>
+            <span>{t('readChooseBtn')}</span>
             <ArrowRightIcon size={15} />
           </button>
         </div>
@@ -105,23 +105,29 @@ export default function ReadingView({
   const pagesDelta = hasValidPreview ? parsedPage - activeEntry.currentPage : 0;
   const willComplete = hasValidPreview && parsedPage >= activeBook.totalPages;
 
+  const activeCountLabel =
+    readingBooks.length === 1
+      ? t('readActiveSingle')
+      : t('readActivePlural', { count: readingBooks.length });
+
+  const sessionWord =
+    activeEntry.sessions.length === 1 ? t('sessionSingle') : t('sessionPlural');
+
   const handleSubmitSession = (e) => {
     e.preventDefault();
-    setError('');
+    setErrorMsg('');
 
     const targetPage = parseInt(pageInput, 10);
     if (Number.isNaN(targetPage)) {
-      setError('Enter the page number you reached in this session.');
+      setErrorMsg(t('logErrInvalidPage'));
       return;
     }
     if (targetPage < activeEntry.currentPage) {
-      setError(
-        `Page reached cannot be less than your current page (${activeEntry.currentPage}).`
-      );
+      setErrorMsg(t('logErrBelowCurrent', { current: activeEntry.currentPage }));
       return;
     }
     if (targetPage > activeBook.totalPages) {
-      setError(`This book has ${activeBook.totalPages} pages total.`);
+      setErrorMsg(t('logErrAboveTotal', { total: activeBook.totalPages }));
       return;
     }
 
@@ -129,14 +135,14 @@ export default function ReadingView({
     if (durationSeconds === 0 && showManualTime && manualMinutes !== '') {
       const mins = parseFloat(manualMinutes);
       if (Number.isNaN(mins) || mins < 0) {
-        setError('Please enter a valid number of minutes.');
+        setErrorMsg(t('logErrManualMins'));
         return;
       }
       durationSeconds = Math.round(mins * 60);
     }
 
     if (targetPage === activeEntry.currentPage && durationSeconds === 0) {
-      setError('Advance your page number or record session time before logging.');
+      setErrorMsg(t('logErrNoChange'));
       return;
     }
 
@@ -153,7 +159,7 @@ export default function ReadingView({
   };
 
   const applyQuickPage = (pageValue) => {
-    setError('');
+    setErrorMsg('');
     setPageInput(String(Math.min(activeBook.totalPages, pageValue)));
   };
 
@@ -161,23 +167,20 @@ export default function ReadingView({
     <section className="page-section" aria-labelledby="reading-heading">
       <div className="page-header">
         <div>
-          <span className="eyebrow-label">Session Room</span>
+          <span className="eyebrow-label">{t('readEyebrow')}</span>
           <h1 id="reading-heading" className="page-title">
-            Reading Progress &amp; Timer
+            {t('readTitle')}
           </h1>
-          <p className="page-subtitle">
-            Time each reading session and enter the page reached to update your completion.
-          </p>
+          <p className="page-subtitle">{t('readSubtitle')}</p>
         </div>
 
         <span className="header-stat-pill">
-          <span className="mono-num">{readingBooks.length}</span>
-          <span>{readingBooks.length === 1 ? 'active book' : 'active books'}</span>
+          <span>{activeCountLabel}</span>
         </span>
       </div>
 
       {readingBooks.length > 1 && (
-        <div className="reading-switcher" role="tablist" aria-label="Active books">
+        <div className="reading-switcher" role="tablist" aria-label={t('navReading')}>
           {readingBooks.map((book) => {
             const entry = readingMap[book.id];
             const pct = getCompletionPercentage(entry.currentPage, book.totalPages);
@@ -200,22 +203,23 @@ export default function ReadingView({
       )}
 
       <div className="reading-workbench">
-        {/* Left: Active Book Overview & Completion */}
         <div className="reading-book-panel">
           <div className="reading-book-panel__top">
-            <BookCover book={activeBook} size="lg" />
+            <BookCover book={activeBook} size="lg" lang={lang} />
             <div className="reading-book-panel__meta">
-              <span className="meta-tag">{activeBook.genre}</span>
+              <span className="meta-tag">{translateGenre(activeBook.genre, lang)}</span>
               <h2 className="reading-book-panel__title">{activeBook.title}</h2>
-              <p className="reading-book-panel__author">by {activeBook.author}</p>
+              <p className="reading-book-panel__author">
+                {t('byAuthor', { author: activeBook.author })}
+              </p>
 
               <div className="reading-stats-row">
                 <div>
-                  <span className="eyebrow-label">Progress</span>
+                  <span className="eyebrow-label">{t('readProgressLabel')}</span>
                   <div className="reading-pct-hero mono-num">{currentPct}%</div>
                 </div>
                 <div>
-                  <span className="eyebrow-label">Current Page</span>
+                  <span className="eyebrow-label">{t('readCurrentPageLabel')}</span>
                   <div className="reading-page-hero mono-num">
                     {activeEntry.currentPage}
                     <span className="reading-page-hero__total"> / {activeBook.totalPages}</span>
@@ -224,8 +228,8 @@ export default function ReadingView({
                         type="button"
                         className="inline-edit-btn"
                         onClick={() => onEditBookPages(activeBook)}
-                        title="Edit total page count"
-                        aria-label="Edit total page count"
+                        title={t('readEditTotalPages')}
+                        aria-label={t('readEditTotalPages')}
                       >
                         <EditIcon size={13} />
                       </button>
@@ -234,44 +238,46 @@ export default function ReadingView({
                 </div>
               </div>
 
-              <div className="progress-track progress-track--lg" aria-label={`${currentPct}% completed`}>
+              <div className="progress-track progress-track--lg">
                 <div className="progress-track__fill" style={{ width: `${currentPct}%` }} />
               </div>
 
               <div className="reading-accumulated">
                 <ClockIcon size={14} />
                 <span>
-                  Accumulated time:{' '}
-                  <strong className="mono-num">{formatDuration(totalBookSeconds)}</strong> across{' '}
-                  <span className="mono-num">{activeEntry.sessions.length}</span>{' '}
-                  {activeEntry.sessions.length === 1 ? 'session' : 'sessions'}
+                  {t('readAccumulated')}{' '}
+                  <strong className="mono-num">{formatDuration(totalBookSeconds)}</strong>{' '}
+                  {t('readAcrossSessions', {
+                    count: activeEntry.sessions.length,
+                    unit: sessionWord,
+                  })}
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right: Built-in Timer + Page Progress Logger */}
         <div className="reading-controls-panel">
           <div className="timer-card">
             <div className="timer-card__head">
-              <span className="eyebrow-label">Session Timer</span>
+              <span className="eyebrow-label">{t('timerLabel')}</span>
               <span className={`timer-status ${isTimerRunningHere ? 'is-running' : ''}`}>
                 <span className="timer-status__dot" aria-hidden="true" />
                 {isTimerRunningHere
-                  ? 'Active'
+                  ? t('timerActive')
                   : displayedTimerSeconds > 0
-                  ? 'Paused'
-                  : 'Ready'}
+                  ? t('timerPaused')
+                  : t('timerReady')}
               </span>
             </div>
 
             {!timerBelongsToSelected && (liveTimerSeconds > 0 || timer.isRunning) ? (
               <div className="timer-other-notice">
                 <p>
-                  Timer currently holds{' '}
-                  <strong className="mono-num">{formatClock(liveTimerSeconds)}</strong> for{' '}
-                  <strong>{timerBook?.title || 'another book'}</strong>.
+                  {t('timerRunningOther', {
+                    time: formatClock(liveTimerSeconds),
+                    title: timerBook?.title || '',
+                  })}
                 </p>
                 <div className="timer-other-notice__actions">
                   <button
@@ -279,14 +285,14 @@ export default function ReadingView({
                     className="btn btn--ghost btn--sm"
                     onClick={() => onSelectReadingBook(timer.activeBookId)}
                   >
-                    Switch to {timerBook?.title}
+                    {t('timerSwitchBook', { title: timerBook?.title || '' })}
                   </button>
                   <button
                     type="button"
                     className="btn btn--violet-soft btn--sm"
                     onClick={() => onStartTimer(activeBook.id, true)}
                   >
-                    Start New Here
+                    {t('timerStartFresh')}
                   </button>
                 </div>
               </div>
@@ -305,7 +311,7 @@ export default function ReadingView({
                       onClick={onPauseTimer}
                     >
                       <PauseIcon size={15} />
-                      <span>Pause</span>
+                      <span>{t('timerPause')}</span>
                     </button>
                   ) : (
                     <button
@@ -315,7 +321,7 @@ export default function ReadingView({
                       onClick={() => onStartTimer(activeBook.id, false)}
                     >
                       <PlayIcon size={15} />
-                      <span>{displayedTimerSeconds > 0 ? 'Resume' : 'Start Timer'}</span>
+                      <span>{displayedTimerSeconds > 0 ? t('timerResume') : t('timerStart')}</span>
                     </button>
                   )}
 
@@ -327,7 +333,7 @@ export default function ReadingView({
                     disabled={displayedTimerSeconds === 0 && !isTimerRunningHere}
                   >
                     <ResetIcon size={15} />
-                    <span>Reset</span>
+                    <span>{t('timerReset')}</span>
                   </button>
                 </div>
               </>
@@ -337,10 +343,13 @@ export default function ReadingView({
           <form className="log-form" onSubmit={handleSubmitSession} noValidate>
             <div className="log-form__header">
               <label htmlFor="page-reached-input" className="eyebrow-label">
-                Log Reading Progress
+                {t('logLabel')}
               </label>
               <span className="log-form__hint mono-num">
-                Page {activeEntry.currentPage} → {activeBook.totalPages}
+                {t('logRangeHint', {
+                  current: activeEntry.currentPage,
+                  total: activeBook.totalPages,
+                })}
               </span>
             </div>
 
@@ -352,22 +361,25 @@ export default function ReadingView({
                 max={activeBook.totalPages}
                 value={pageInput}
                 onChange={(e) => {
-                  setError('');
+                  setErrorMsg('');
                   setPageInput(e.target.value);
                 }}
-                placeholder={`Enter page reached (${activeEntry.currentPage}–${activeBook.totalPages})`}
+                placeholder={t('logInputPlaceholder', {
+                  current: activeEntry.currentPage,
+                  total: activeBook.totalPages,
+                })}
                 className="page-number-input mono-num"
               />
             </div>
 
-            <div className="quick-chips" aria-label="Quick page shortcuts">
+            <div className="quick-chips">
               <button
                 type="button"
                 className="quick-chip"
                 onClick={() => applyQuickPage(activeEntry.currentPage + 10)}
                 disabled={activeEntry.currentPage >= activeBook.totalPages}
               >
-                +10 pages
+                {t('logQuickPlus10')}
               </button>
               <button
                 type="button"
@@ -375,7 +387,7 @@ export default function ReadingView({
                 onClick={() => applyQuickPage(activeEntry.currentPage + 25)}
                 disabled={activeEntry.currentPage >= activeBook.totalPages}
               >
-                +25 pages
+                {t('logQuickPlus25')}
               </button>
               <button
                 type="button"
@@ -383,7 +395,7 @@ export default function ReadingView({
                 className="quick-chip quick-chip--violet"
                 onClick={() => applyQuickPage(activeBook.totalPages)}
               >
-                Final page ({activeBook.totalPages})
+                {t('logQuickFinish', { total: activeBook.totalPages })}
               </button>
             </div>
 
@@ -395,11 +407,11 @@ export default function ReadingView({
                     className="text-link-btn"
                     onClick={() => setShowManualTime(true)}
                   >
-                    + Add offline reading minutes manually
+                    {t('logAddManualLink')}
                   </button>
                 ) : (
                   <div className="manual-time-row">
-                    <label htmlFor="manual-minutes-input">Offline duration (min)</label>
+                    <label htmlFor="manual-minutes-input">{t('logManualLabel')}</label>
                     <input
                       id="manual-minutes-input"
                       type="number"
@@ -407,7 +419,7 @@ export default function ReadingView({
                       max="1440"
                       value={manualMinutes}
                       onChange={(e) => setManualMinutes(e.target.value)}
-                      placeholder="e.g. 25"
+                      placeholder="25"
                       className="mono-num"
                     />
                   </div>
@@ -418,25 +430,25 @@ export default function ReadingView({
             {hasValidPreview && (
               <div className={`log-preview ${willComplete ? 'is-completing' : ''}`}>
                 {willComplete ? (
-                  <span>
-                    Reaches <strong>100%</strong> (+{pagesDelta} pages) — book will automatically move to{' '}
-                    <strong>Completed</strong>.
-                  </span>
+                  <span>{t('logPreviewComplete', { delta: pagesDelta })}</span>
                 ) : (
                   <span>
-                    +{pagesDelta} {pagesDelta === 1 ? 'page' : 'pages'} · updates completion to{' '}
-                    <strong className="mono-num">{previewPct}%</strong>
+                    {t('logPreviewProgress', {
+                      delta: pagesDelta,
+                      pageUnit: pagesDelta === 1 ? t('pageSingle') : t('pagePlural'),
+                      pct: previewPct,
+                    })}
                     {displayedTimerSeconds > 0
-                      ? ` · logs ${formatDuration(displayedTimerSeconds)}`
+                      ? t('logPreviewWithTime', { time: formatDuration(displayedTimerSeconds) })
                       : ''}
                   </span>
                 )}
               </div>
             )}
 
-            {error && (
+            {errorMsg && (
               <p className="form-error" role="alert">
-                {error}
+                {errorMsg}
               </p>
             )}
 
@@ -445,40 +457,41 @@ export default function ReadingView({
               id="log-session-submit"
               className="btn btn--primary btn--full"
             >
-              {willComplete ? 'Finish Book & Move to Completed' : 'Log Session & Update Progress'}
+              {willComplete ? t('logSubmitFinish') : t('logSubmitNormal')}
             </button>
           </form>
         </div>
       </div>
 
-      {/* Session History */}
       <div className="sessions-section">
         <div className="sessions-section__head">
-          <h3 className="sessions-section__title">Reading Sessions</h3>
+          <h3 className="sessions-section__title">{t('sessionsTitle')}</h3>
           <span className="sessions-section__summary mono-num">
-            {activeEntry.sessions.length} logged · {formatDuration(totalBookSeconds)} total
+            {t('sessionsSummary', {
+              count: activeEntry.sessions.length,
+              time: formatDuration(totalBookSeconds),
+            })}
           </span>
         </div>
 
         {activeEntry.sessions.length === 0 ? (
-          <p className="sessions-empty">
-            No sessions logged for this book yet. Start the timer or enter your first page milestone above.
-          </p>
+          <p className="sessions-empty">{t('sessionsEmpty')}</p>
         ) : (
           <div className="sessions-list">
             {[...activeEntry.sessions].reverse().map((session, idx, arr) => (
               <div key={session.id} className="session-row">
                 <div className="session-row__left">
-                  <span className="session-row__index mono-num">
-                    #{arr.length - idx}
-                  </span>
+                  <span className="session-row__index mono-num">#{arr.length - idx}</span>
                   <span className="session-row__date">
-                    {formatDateShort(session.timestamp)}
+                    {formatDateShort(session.timestamp, lang)}
                   </span>
                 </div>
 
                 <div className="session-row__pages mono-num">
-                  Page {session.startPage} → {session.endPage}
+                  {t('sessionPageArrow', {
+                    start: session.startPage,
+                    end: session.endPage,
+                  })}
                   <span className="session-row__delta"> (+{session.pagesRead}p)</span>
                 </div>
 

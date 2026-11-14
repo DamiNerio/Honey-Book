@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { translate } from '../i18n/translations';
+import { formatDateShort, formatDuration } from '../utils/formatters';
 import BookCover from './BookCover';
 import {
   ArrowRightIcon,
@@ -6,18 +8,22 @@ import {
   ClockIcon,
   EditIcon,
 } from './Icons';
-import { formatDateShort, formatDuration } from '../utils/formatters';
 
 function CompletedBookCard({
   book,
   record,
+  lang,
   onSaveReview,
   onSelectBook,
 }) {
+  const t = (key, vars) => translate(lang, key, vars);
   const [isEditing, setIsEditing] = useState(!record.review);
   const [draftReview, setDraftReview] = useState(record.review || '');
   const [draftRating, setDraftRating] = useState(record.rating || 0);
   const [showSessions, setShowSessions] = useState(false);
+
+  const sessionWord =
+    record.sessionsCount === 1 ? t('sessionSingle') : t('sessionPlural');
 
   const handleSave = (e) => {
     e.preventDefault();
@@ -38,9 +44,9 @@ function CompletedBookCard({
           type="button"
           className="completed-card__cover-btn"
           onClick={() => onSelectBook(book)}
-          aria-label={`View ${book.title}`}
+          aria-label={book.title}
         >
-          <BookCover book={book} size="md" />
+          <BookCover book={book} size="md" lang={lang} />
         </button>
 
         <div className="completed-card__body">
@@ -49,10 +55,14 @@ function CompletedBookCard({
               <div className="completed-card__meta">
                 <span className="completed-badge">
                   <CheckCircleIcon size={13} />
-                  <span>Completed {formatDateShort(record.completedAt)}</span>
+                  <span>
+                    {t('compDateLabel', { date: formatDateShort(record.completedAt, lang) })}
+                  </span>
                 </span>
                 <span className="meta-dot" aria-hidden="true">·</span>
-                <span className="mono-num">{book.totalPages} pages</span>
+                <span className="mono-num">
+                  {t('pagesCount', { count: book.totalPages })}
+                </span>
               </div>
 
               <h2 className="completed-card__title">
@@ -64,26 +74,27 @@ function CompletedBookCard({
                   {book.title}
                 </button>
               </h2>
-              <p className="completed-card__author">by {book.author}</p>
+              <p className="completed-card__author">{t('byAuthor', { author: book.author })}</p>
             </div>
 
             <div className="completed-time-stat">
-              <span className="eyebrow-label">Total Reading Time</span>
+              <span className="eyebrow-label">{t('compTotalTimeLabel')}</span>
               <div className="completed-time-stat__value mono-num">
                 <ClockIcon size={16} />
                 <span>{formatDuration(record.totalReadingSeconds)}</span>
               </div>
               <span className="completed-time-stat__sub mono-num">
-                across {record.sessionsCount}{' '}
-                {record.sessionsCount === 1 ? 'session' : 'sessions'}
+                {t('readAcrossSessions', {
+                  count: record.sessionsCount,
+                  unit: sessionWord,
+                })}
               </span>
             </div>
           </div>
 
-          {/* Personal Review & Thoughts */}
           <div className="review-block">
             <div className="review-block__head">
-              <span className="eyebrow-label">Personal Review &amp; Thoughts</span>
+              <span className="eyebrow-label">{t('compReviewLabel')}</span>
               {!isEditing && (
                 <button
                   type="button"
@@ -96,15 +107,15 @@ function CompletedBookCard({
                   }}
                 >
                   <EditIcon size={13} />
-                  <span>{record.review ? 'Edit thoughts' : 'Write review'}</span>
+                  <span>{record.review ? t('compEditThoughts') : t('compWriteReview')}</span>
                 </button>
               )}
             </div>
 
             {isEditing ? (
               <form className="review-form" onSubmit={handleSave}>
-                <div className="rating-row" aria-label="Personal rating">
-                  <span className="rating-row__label">Impression</span>
+                <div className="rating-row" aria-label={t('compImpression')}>
+                  <span className="rating-row__label">{t('compImpression')}</span>
                   <div className="rating-diamonds">
                     {[1, 2, 3, 4, 5].map((value) => (
                       <button
@@ -112,7 +123,7 @@ function CompletedBookCard({
                         type="button"
                         className={`rating-star ${draftRating >= value ? 'is-filled' : ''}`}
                         onClick={() => setDraftRating(draftRating === value ? 0 : value)}
-                        aria-label={`Rate ${value} out of 5`}
+                        aria-label={t('compRateAria', { value })}
                         aria-pressed={draftRating >= value}
                       >
                         ★
@@ -126,7 +137,7 @@ function CompletedBookCard({
                   rows="3"
                   value={draftReview}
                   onChange={(e) => setDraftReview(e.target.value)}
-                  placeholder="Capture your reflections, favorite passages, or how this book stayed with you..."
+                  placeholder={t('compReviewPlaceholder')}
                   className="review-textarea"
                 />
 
@@ -137,7 +148,7 @@ function CompletedBookCard({
                       className="btn btn--ghost btn--sm"
                       onClick={handleCancel}
                     >
-                      Cancel
+                      {t('cancel')}
                     </button>
                   )}
                   <button
@@ -145,14 +156,14 @@ function CompletedBookCard({
                     id={`save-review-${book.id}`}
                     className="btn btn--primary btn--sm"
                   >
-                    Save Thoughts
+                    {t('compSaveThoughts')}
                   </button>
                 </div>
               </form>
             ) : (
               <div className="review-display">
                 {record.rating > 0 && (
-                  <div className="rating-display" aria-label={`Rated ${record.rating} out of 5`}>
+                  <div className="rating-display">
                     {[1, 2, 3, 4, 5].map((v) => (
                       <span
                         key={v}
@@ -166,7 +177,7 @@ function CompletedBookCard({
                 {record.review ? (
                   <blockquote className="review-quote">{record.review}</blockquote>
                 ) : (
-                  <p className="review-empty">No reflections recorded yet.</p>
+                  <p className="review-empty">{t('compNoReflections')}</p>
                 )}
               </div>
             )}
@@ -180,10 +191,14 @@ function CompletedBookCard({
                 onClick={() => setShowSessions((v) => !v)}
               >
                 {showSessions
-                  ? 'Hide session breakdown'
-                  : `View ${record.sessions.length} reading ${
-                      record.sessions.length === 1 ? 'session' : 'sessions'
-                    }`}
+                  ? t('compHideSessions')
+                  : t('compShowSessions', {
+                      count: record.sessions.length,
+                      unit:
+                        record.sessions.length === 1
+                          ? t('sessionSingle')
+                          : t('sessionPlural'),
+                    })}
               </button>
 
               {showSessions && (
@@ -192,10 +207,12 @@ function CompletedBookCard({
                     <div key={s.id} className="session-row">
                       <div className="session-row__left">
                         <span className="session-row__index mono-num">#{idx + 1}</span>
-                        <span className="session-row__date">{formatDateShort(s.timestamp)}</span>
+                        <span className="session-row__date">
+                          {formatDateShort(s.timestamp, lang)}
+                        </span>
                       </div>
                       <div className="session-row__pages mono-num">
-                        Page {s.startPage} → {s.endPage}
+                        {t('sessionPageArrow', { start: s.startPage, end: s.endPage })}
                       </div>
                       <div className="session-row__duration mono-num">
                         {formatDuration(s.durationSeconds)}
@@ -215,10 +232,13 @@ function CompletedBookCard({
 export default function CompletedView({
   books,
   completedMap,
+  lang,
   onSaveReview,
   onSelectBook,
   onBrowseDirectory,
 }) {
+  const t = (key, vars) => translate(lang, key, vars);
+
   const completedItems = books
     .filter((book) => Boolean(completedMap[book.id]))
     .map((book) => ({ book, record: completedMap[book.id] }))
@@ -236,30 +256,30 @@ export default function CompletedView({
     <section className="page-section" aria-labelledby="completed-heading">
       <div className="page-header">
         <div>
-          <span className="eyebrow-label">Finished Shelf</span>
+          <span className="eyebrow-label">{t('compEyebrow')}</span>
           <h1 id="completed-heading" className="page-title">
-            Completed Books
+            {t('compTitle')}
           </h1>
-          <p className="page-subtitle">
-            Books move here automatically upon finishing—preserving total reading time and your personal thoughts.
-          </p>
+          <p className="page-subtitle">{t('compSubtitle')}</p>
         </div>
 
         <span className="header-stat-pill">
           <ClockIcon size={14} />
-          <span className="mono-num">{formatDuration(totalHoursSeconds)}</span>
-          <span>logged across {completedItems.length} finished</span>
+          <span>
+            {t(completedItems.length === 1 ? 'compSummaryStatSingle' : 'compSummaryStat', {
+              time: formatDuration(totalHoursSeconds),
+              count: completedItems.length,
+            })}
+          </span>
         </span>
       </div>
 
       {completedItems.length === 0 ? (
         <div className="empty-state">
-          <p className="empty-state__title">No finished books yet</p>
-          <p className="empty-state__desc">
-            Once a book reaches 100% in your Reading workspace, it will automatically arrive here.
-          </p>
+          <p className="empty-state__title">{t('compEmptyTitle')}</p>
+          <p className="empty-state__desc">{t('compEmptyDesc')}</p>
           <button type="button" className="btn btn--primary" onClick={onBrowseDirectory}>
-            <span>Start a Book</span>
+            <span>{t('compStartBook')}</span>
             <ArrowRightIcon size={15} />
           </button>
         </div>
@@ -270,6 +290,7 @@ export default function CompletedView({
               key={book.id}
               book={book}
               record={record}
+              lang={lang}
               onSaveReview={onSaveReview}
               onSelectBook={onSelectBook}
             />

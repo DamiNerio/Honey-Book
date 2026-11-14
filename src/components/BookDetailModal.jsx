@@ -1,4 +1,7 @@
 import { useEffect } from 'react';
+import { translateGenre } from '../data/genres';
+import { translate } from '../i18n/translations';
+import { formatDuration, getCompletionPercentage } from '../utils/formatters';
 import BookCover from './BookCover';
 import {
   BookmarkIcon,
@@ -7,18 +10,20 @@ import {
   ClockIcon,
   CloseIcon,
 } from './Icons';
-import { formatDuration, getCompletionPercentage } from '../utils/formatters';
 
 export default function BookDetailModal({
   book,
   isWishlisted,
   readingEntry,
   completedEntry,
+  lang,
   onClose,
   onToggleWishlist,
   onStartReading,
   onOpenSection,
 }) {
+  const t = (key, vars) => translate(lang, key, vars);
+
   useEffect(() => {
     if (!book) return undefined;
     const handleKey = (e) => {
@@ -51,19 +56,19 @@ export default function BookDetailModal({
           id="detail-modal-close"
           className="modal-close"
           onClick={onClose}
-          aria-label="Close book details"
+          aria-label={t('close')}
         >
           <CloseIcon size={18} />
         </button>
 
         <div className="detail-layout">
           <div className="detail-layout__media">
-            <BookCover book={book} size="lg" />
+            <BookCover book={book} size="lg" lang={lang} />
           </div>
 
           <div className="detail-layout__body">
             <div className="detail-meta-row">
-              <span className="meta-tag">{book.genre}</span>
+              <span className="meta-tag">{translateGenre(book.genre, lang)}</span>
               {book.year && (
                 <>
                   <span className="meta-dot" aria-hidden="true">·</span>
@@ -72,26 +77,28 @@ export default function BookDetailModal({
               )}
               <span className="meta-dot" aria-hidden="true">·</span>
               <span className="mono-num">
-                {book.totalPages ? `${book.totalPages} pages` : 'Page count N/A'}
+                {book.totalPages
+                  ? t('pagesCount', { count: book.totalPages })
+                  : t('pageCountMissingShort')}
               </span>
             </div>
 
             <h2 id="detail-modal-title" className="detail-title">
               {book.title}
             </h2>
-            <p className="detail-author">by {book.author}</p>
+            <p className="detail-author">{t('byAuthor', { author: book.author })}</p>
 
             <div className="detail-synopsis">
-              <span className="eyebrow-label">Synopsis</span>
-              <p>{book.synopsis}</p>
+              <span className="eyebrow-label">{t('synopsis')}</span>
+              <p>{book.synopsis || t('noSynopsis')}</p>
             </div>
 
             {isReading && (
               <div className="detail-status-box">
                 <div className="detail-status-box__top">
-                  <span>Currently Reading</span>
+                  <span>{t('navReading')}</span>
                   <span className="mono-num">
-                    {readingEntry.currentPage} / {book.totalPages} pages ({progressPct}%)
+                    {readingEntry.currentPage} / {book.totalPages} ({progressPct}%)
                   </span>
                 </div>
                 <div className="progress-track">
@@ -105,11 +112,11 @@ export default function BookDetailModal({
                 <div className="detail-status-box__top">
                   <span className="inline-flex-center">
                     <CheckCircleIcon size={15} />
-                    Completed
+                    {t('actCompleted')}
                   </span>
                   <span className="mono-num inline-flex-center">
                     <ClockIcon size={14} />
-                    {formatDuration(completedEntry.totalReadingSeconds)} total
+                    {formatDuration(completedEntry.totalReadingSeconds)}
                   </span>
                 </div>
               </div>
@@ -126,7 +133,7 @@ export default function BookDetailModal({
                   }}
                 >
                   <BookOpenIcon size={16} />
-                  <span>Continue Reading</span>
+                  <span>{t('actContinueReading')}</span>
                 </button>
               ) : isCompleted ? (
                 <button
@@ -138,7 +145,7 @@ export default function BookDetailModal({
                   }}
                 >
                   <CheckCircleIcon size={16} />
-                  <span>View in Completed</span>
+                  <span>{t('actViewCompleted')}</span>
                 </button>
               ) : (
                 <button
@@ -150,7 +157,7 @@ export default function BookDetailModal({
                   }}
                 >
                   <BookOpenIcon size={16} />
-                  <span>Start Reading</span>
+                  <span>{t('actStartReading')}</span>
                 </button>
               )}
 
@@ -161,7 +168,7 @@ export default function BookDetailModal({
                   onClick={() => onToggleWishlist(book)}
                 >
                   <BookmarkIcon filled={isWishlisted} size={15} />
-                  <span>{isWishlisted ? 'In Wishlist' : 'Add to Wishlist'}</span>
+                  <span>{isWishlisted ? t('actInWishlist') : t('actAddToWishlist')}</span>
                 </button>
               )}
             </div>

@@ -1,22 +1,38 @@
-import { INITIAL_STATE } from '../data/booksSeed';
+const LIBRARY_KEY_PREFIX = 'book-violet-library-v2-';
 
-const STORAGE_KEY = 'book-violet-state-v1';
-
-export function cloneInitialState() {
+export function createEmptyLibrary() {
   return {
-    ...JSON.parse(JSON.stringify(INITIAL_STATE)),
-    apiKey: import.meta.env?.VITE_GOOGLE_BOOKS_API_KEY || '',
+    books: [],
+    wishlistIds: [],
+    reading: {},
+    completed: {},
+    timer: {
+      activeBookId: null,
+      isRunning: false,
+      elapsedSeconds: 0,
+      lastStartedAtMs: null,
+    },
   };
 }
 
-export function loadLibraryState() {
+export function clearLegacySeedStorage() {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return cloneInitialState();
+    window.localStorage.removeItem('book-violet-state-v1');
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function loadUserLibrary(userId) {
+  if (!userId) return createEmptyLibrary();
+
+  try {
+    const raw = window.localStorage.getItem(`${LIBRARY_KEY_PREFIX}${userId}`);
+    if (!raw) return createEmptyLibrary();
 
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.books)) {
-      return cloneInitialState();
+      return createEmptyLibrary();
     }
 
     return {
@@ -32,35 +48,29 @@ export function loadLibraryState() {
               elapsedSeconds: Number(parsed.timer.elapsedSeconds) || 0,
               lastStartedAtMs: parsed.timer.lastStartedAtMs ?? null,
             }
-          : {
-              activeBookId: null,
-              isRunning: false,
-              elapsedSeconds: 0,
-              lastStartedAtMs: null,
-            },
-      apiKey:
-        typeof parsed.apiKey === 'string'
-          ? parsed.apiKey
-          : import.meta.env?.VITE_GOOGLE_BOOKS_API_KEY || '',
+          : createEmptyLibrary().timer,
     };
   } catch {
-    return cloneInitialState();
+    return createEmptyLibrary();
   }
 }
 
-export function saveLibraryState(state) {
+export function saveUserLibrary(userId, state) {
+  if (!userId) return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    window.localStorage.setItem(`${LIBRARY_KEY_PREFIX}${userId}`, JSON.stringify(state));
   } catch {
     // Ignore storage quota errors safely
   }
 }
 
-export function clearLibraryState() {
-  try {
-    window.localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Ignore storage access errors
+export function clearUserLibrary(userId) {
+  if (userId) {
+    try {
+      window.localStorage.removeItem(`${LIBRARY_KEY_PREFIX}${userId}`);
+    } catch {
+      // Ignore storage access errors
+    }
   }
-  return cloneInitialState();
+  return createEmptyLibrary();
 }

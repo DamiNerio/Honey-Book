@@ -1,13 +1,15 @@
 # Book Violet
 
-A minimalist, nocturnal book tracking web application built with React, Vite, and Vanilla CSS in dark obsidian surfaces and muted violet accents.
+A minimalist, dark-themed personal book tracking web application with muted purple accents and English/Spanish bilingual support.
 
 ## Features
 
-- **Google Books Search & Directory**: Search any book or author in real time via the Google Books API (`https://www.googleapis.com/books/v1/volumes`), automatically retrieving title, cover artwork, synopsis, and total page count. Browse your saved & curated shelf, filter by genre, or add custom editions.
-- **Personal Wishlist**: Bookmark books from Google Books search results or the curated directory into a personal reading queue, then start reading with one click.
-- **Reading Progress & Live Session Timer**: Built-in `HH:MM:SS` reading timer (persisted across tab switches and refreshes) alongside page-number session logging that automatically computes completion percentage and maintains a full session log.
-- **Completed Shelf & Personal Reviews**: When a book reaches 100% completion, it automatically moves to the **Completed** section, displaying accumulated total reading time across all sessions and an inline personal review & rating editor.
+- **Personal Accounts**: Sign up and log in with isolated personal accounts so each reader has their own private library, wishlist, reading progress, and reviews.
+- **Book Search & Directory**: Search any title or author dynamically (powered behind the scenes by the Google Books API), view covers, synopses, and page counts, or create custom books across an expanded literary genre catalog.
+- **Personal Wishlist**: Save titles from search results or custom entries to read next and start reading with a single click.
+- **Reading Progress & Live Timer**: Built-in `HH:MM:SS` session timer and page-progress logger that calculates completion percentage automatically and logs every reading session.
+- **Completed Books & Reflections**: Books reaching 100% completion automatically move to the **Completed** shelf, displaying accumulated total reading time across all sessions alongside a personal review and rating editor.
+- **Bilingual Interface (EN / ES)**: Switch seamlessly between English and Spanish at any time.
 
 ## Local Development
 
@@ -16,7 +18,7 @@ npm install
 npm run dev
 ```
 
-Optional environment variable in `.env.local` if you want a preconfigured Google Books API key (you can also set one directly inside the app's **API Key** modal):
+Optional environment variable in `.env.local` if you want to configure a Google Books API key at build/dev time without exposing any settings in the UI:
 
 ```bash
 VITE_GOOGLE_BOOKS_API_KEY=your_key_here

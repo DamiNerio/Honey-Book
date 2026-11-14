@@ -1,13 +1,18 @@
-const GOOGLE_BOOKS_ENDPOINT = 'https://www.googleapis.com/books/v1/volumes';
+// Internal book search service configuration (hidden from UI)
+const GOOGLE_BOOKS_CONFIG = {
+  endpoint: 'https://www.googleapis.com/books/v1/volumes',
+  maxResults: 12,
+  printType: 'books',
+  apiKey: import.meta.env?.VITE_GOOGLE_BOOKS_API_KEY || '',
+};
 
 const searchCache = new Map();
 
-export class GoogleBooksError extends Error {
-  constructor(message, code = 'API_ERROR', status = 0) {
-    super(message);
-    this.name = 'GoogleBooksError';
+export class BookSearchError extends Error {
+  constructor(code = 'SEARCH_UNAVAILABLE') {
+    super(code);
+    this.name = 'BookSearchError';
     this.code = code;
-    this.status = status;
   }
 }
 
@@ -48,11 +53,12 @@ function parseYear(publishedDate) {
   return match ? parseInt(match[0], 10) : null;
 }
 
-export function normalizeGoogleBook(item) {
+export function normalizeBookResult(item) {
   const info = item?.volumeInfo || {};
-  const authors = Array.isArray(info.authors) && info.authors.length > 0
-    ? info.authors.join(', ')
-    : 'Unknown Author';
+  const authors =
+    Array.isArray(info.authors) && info.authors.length > 0
+      ? info.authors.join(', ')
+      : 'Unknown Author';
 
   const rawGenre =
     Array.isArray(info.categories) && info.categories.length > 0
@@ -67,14 +73,11 @@ export function normalizeGoogleBook(item) {
   const synopsis =
     decodeAndStripHtml(info.description) ||
     decodeAndStripHtml(item?.searchInfo?.textSnippet) ||
-    'No synopsis was provided by Google Books for this edition.';
+    '';
 
   return {
-    id: `gb-${item.id}`,
-    googleId: item.id,
-    source: 'google-books',
-    title: info.title ? info.title.trim() : 'Untitled Volume',
-    subtitle: info.subtitle ? info.subtitle.trim() : '',
+    id: `vol-${item.id}`,
+    title: info.title ? info.title.trim() : 'Untitled',
     author: authors,
     genre: rawGenre || 'General',
     year: parseYear(info.publishedDate),
@@ -84,28 +87,28 @@ export function normalizeGoogleBook(item) {
   };
 }
 
-export async function searchGoogleBooks(query, { apiKey = '', signal, maxResults = 12 } = {}) {
+export async function searchBooksCatalog(query, { signal } = {}) {
   const cleanQuery = query.trim();
   if (!cleanQuery) return [];
 
-  const cacheKey = `${cleanQuery.toLowerCase()}::${apiKey.trim()}::${maxResults}`;
+  const cacheKey = cleanQuery.toLowerCase();
   if (searchCache.has(cacheKey)) {
     return searchCache.get(cacheKey);
   }
 
   const params = new URLSearchParams({
     q: cleanQuery,
-    maxResults: String(maxResults),
-    printType: 'books',
+    maxResults: String(GOOGLE_BOOKS_CONFIG.maxResults),
+    printType: GOOGLE_BOOKS_CONFIG.printType,
   });
 
-  if (apiKey.trim()) {
-    params.set('key', apiKey.trim());
+  if (GOOGLE_BOOKS_CONFIG.apiKey) {
+    params.set('key', GOOGLE_BOOKS_CONFIG.apiKey);
   }
 
   let response;
   try {
-    response = await fetch(`${GOOGLE_BOOKS_ENDPOINT}?${params.toString()}`, {
+    response = await fetch(`${GOOGLE_BOOKS_CONFIG.endpoint}?${params.toString()}`, {
       method: 'GET',
       signal,
     });
@@ -113,51 +116,16 @@ export async function searchGoogleBooks(query, { apiKey = '', signal, maxResults
     if (err?.name === 'AbortError') {
       throw err;
     }
-    throw new GoogleBooksError(
-      'Unable to reach Google Books API. Check your internet connection and try again.',
-      'NETWORK_ERROR',
-      0
-    );
+    throw new BookSearchError('NETWORK_ERROR');
   }
 
   if (!response.ok) {
-    let message = `Google Books returned status ${response.status}.`;
-    try {
-      const errJson = await response.json();
-      if (errJson?.error?.message) {
-        message = errJson.error.message;
-      }
-    } catch {
-      // Ignore parse failures
-    }
-
-    if (response.status === 429) {
-      throw new GoogleBooksError(
-        'Google Books public query quota exceeded (HTTP 429). Add a personal Google Books API key or try again later.',
-        'QUOTA_EXCEEDED',
-        429
-      );
-    }
-
-    if (response.status === 400 || response.status === 403) {
-      const lower = message.toLowerCase();
-      if (lower.includes('key') || lower.includes('quota') || lower.includes('limit')) {
-        throw new GoogleBooksError(
-          lower.includes('key')
-            ? 'The provided Google Books API key was rejected. Check your key or clear it to use public requests.'
-            : 'Google Books API quota limit reached. Try again later or configure an API key.',
-          lower.includes('key') ? 'INVALID_KEY' : 'QUOTA_EXCEEDED',
-          response.status
-        );
-      }
-    }
-
-    throw new GoogleBooksError(message, 'HTTP_ERROR', response.status);
+    throw new BookSearchError('SEARCH_UNAVAILABLE');
   }
 
   const data = await response.json();
   const items = Array.isArray(data?.items) ? data.items : [];
-  const normalized = items.map(normalizeGoogleBook);
+  const normalized = items.map(normalizeBookResult);
 
   searchCache.set(cacheKey, normalized);
   return normalized;

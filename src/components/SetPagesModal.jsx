@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
+import { translate } from '../i18n/translations';
 import { CloseIcon } from './Icons';
 
-export default function SetPagesModal({ book, initialMode = 'start', onClose, onConfirm }) {
+export default function SetPagesModal({ book, initialMode = 'start', lang, onClose, onConfirm }) {
   const [pagesInput, setPagesInput] = useState(
     book?.totalPages && book.totalPages > 0 ? String(book.totalPages) : '280'
   );
-  const [error, setError] = useState('');
+  const [errorKey, setErrorKey] = useState('');
+
+  const t = (key, vars) => translate(lang, key, vars);
 
   useEffect(() => {
     if (!book) return;
     setPagesInput(book.totalPages && book.totalPages > 0 ? String(book.totalPages) : '280');
-    setError('');
+    setErrorKey('');
   }, [book]);
 
   useEffect(() => {
@@ -28,7 +31,7 @@ export default function SetPagesModal({ book, initialMode = 'start', onClose, on
     e.preventDefault();
     const num = parseInt(pagesInput, 10);
     if (Number.isNaN(num) || num < 1 || num > 10000) {
-      setError('Enter a valid total page count between 1 and 10,000.');
+      setErrorKey('pagesModalErr');
       return;
     }
     onConfirm(book, num);
@@ -47,26 +50,26 @@ export default function SetPagesModal({ book, initialMode = 'start', onClose, on
           type="button"
           className="modal-close"
           onClick={onClose}
-          aria-label="Close page count prompt"
+          aria-label={t('close')}
         >
           <CloseIcon size={18} />
         </button>
 
         <div className="modal-header">
-          <span className="eyebrow-label">Edition Details</span>
+          <span className="eyebrow-label">{t('pagesModalEyebrow')}</span>
           <h2 id="set-pages-title" className="modal-title">
-            {initialMode === 'edit' ? 'Update Total Pages' : 'Confirm Page Count'}
+            {initialMode === 'edit' ? t('pagesModalTitleEdit') : t('pagesModalTitleStart')}
           </h2>
           <p className="modal-desc">
             {initialMode === 'edit'
-              ? `Adjust the total page count for "${book.title}" to match your edition.`
-              : `Google Books did not specify a page count for this edition of "${book.title}". Enter its page count to calculate completion percentage accurately.`}
+              ? t('pagesModalDescEdit', { title: book.title })
+              : t('pagesModalDescStart', { title: book.title })}
           </p>
         </div>
 
         <form className="stack-form" onSubmit={handleSubmit}>
           <div className="field">
-            <label htmlFor="edition-pages-input">Total Pages</label>
+            <label htmlFor="edition-pages-input">{t('pagesModalInputLabel')}</label>
             <input
               id="edition-pages-input"
               type="number"
@@ -74,7 +77,7 @@ export default function SetPagesModal({ book, initialMode = 'start', onClose, on
               max="10000"
               value={pagesInput}
               onChange={(e) => {
-                setError('');
+                setErrorKey('');
                 setPagesInput(e.target.value);
               }}
               className="mono-num"
@@ -82,18 +85,18 @@ export default function SetPagesModal({ book, initialMode = 'start', onClose, on
             />
           </div>
 
-          {error && (
+          {errorKey && (
             <p className="form-error" role="alert">
-              {error}
+              {t(errorKey)}
             </p>
           )}
 
           <div className="modal-footer">
             <button type="button" className="btn btn--ghost" onClick={onClose}>
-              Cancel
+              {t('cancel')}
             </button>
             <button type="submit" id="confirm-pages-btn" className="btn btn--primary">
-              {initialMode === 'edit' ? 'Save Page Count' : 'Start Reading'}
+              {initialMode === 'edit' ? t('pagesModalSave') : t('pagesModalStart')}
             </button>
           </div>
         </form>
