@@ -1,7 +1,8 @@
-import { loadGuestLanguage } from './storage';
+import { isSupabaseConfigured, supabase } from '../services/supabase.js';
+import { loadGuestLanguage } from './storage.js';
 
-const USERS_KEY = 'honey_book_users';
-const SESSION_KEY = 'honey_book_session';
+const LEGACY_USERS_KEY = 'honey_book_users';
+const LEGACY_SESSION_KEY = 'honey_book_session';
 const LANG_KEY = 'honey_book_language';
 
 export const GUEST_USER = Object.freeze({
@@ -10,47 +11,8 @@ export const GUEST_USER = Object.freeze({
   isGuest: true,
 });
 
-function loadUsersMap() {
-  try {
-    const raw = window.localStorage.getItem(USERS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveUsersMap(users) {
-  window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function generateId(prefix = 'id') {
-  if (window.crypto?.randomUUID) {
-    return `${prefix}-${window.crypto.randomUUID()}`;
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-async function hashPassword(password, salt) {
-  const input = `${salt}::${password}`;
-  if (window.crypto?.subtle) {
-    const encoded = new TextEncoder().encode(input);
-    const buffer = await window.crypto.subtle.digest('SHA-256', encoded);
-    return Array.from(new Uint8Array(buffer))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
-}
-
 export function normalizeAccountKey(emailOrUsername) {
-  return emailOrUsername.trim().toLowerCase();
+  return String(emailOrUsername || '').trim().toLowerCase();
 }
 
 export function getStoredLanguage() {
@@ -74,105 +36,216 @@ export function saveStoredLanguage(lang) {
   }
 }
 
+export function clearLegacyAuthStorage() {
+  try {
+    window.localStorage.removeItem(LEGACY_USERS_KEY);
+    window.localStorage.removeItem(LEGACY_SESSION_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function isGuestUser(user) {
   return Boolean(!user || user.isGuest || user.id === 'guest');
 }
 
 export function continueAsGuest() {
   try {
-    window.localStorage.setItem(
-      SESSION_KEY,
-      JSON.stringify({ isGuest: true, accountKey: 'guest' })
-    );
+    window.localStorage.removeItem(LEGACY_SESSION_KEY);
   } catch {
     // Ignore storage errors
   }
   return { ...GUEST_USER };
 }
 
-export function getCurrentUser() {
-  try {
-    const rawSession = window.localStorage.getItem(SESSION_KEY);
-    if (!rawSession) {
-      return { ...GUEST_USER };
-    }
-    const parsed = JSON.parse(rawSession);
-    if (!parsed || parsed.isGuest || !parsed.accountKey || parsed.accountKey === 'guest') {
-      return { ...GUEST_USER };
-    }
-    const users = loadUsersMap();
-    const record = users[parsed.accountKey];
-    if (!record) {
-      return { ...GUEST_USER };
-    }
-    return {
-      id: record.id,
-      name: record.name,
-      accountKey: parsed.accountKey,
-      isGuest: false,
-    };
-  } catch {
+export function mapSupabaseUser(supaUser) {
+  if (!supaUser || !supaUser.id) {
     return { ...GUEST_USER };
   }
+  const metaName =
+    typeof supaUser.user_metadata?.full_name === 'string' && supaUser.user_metadata.full_name.trim()
+      ? supaUser.user_metadata.full_name.trim()
+      : typeof supaUser.user_metadata?.name === 'string' && supaUser.user_metadata.name.trim()
+      ? supaUser.user_metadata.name.trim()
+      : '';
+  const email = typeof supaUser.email === 'string' ? supaUser.email.trim() : '';
+  const fallbackName = email ? email.split('@')[0] : 'Reader';
+
+  return {
+    id: supaUser.id,
+    email,
+    name: metaName || fallbackName,
+    accountKey: normalizeAccountKey(email || supaUser.id),
+    isGuest: false,
+  };
+}
+
+export function getCurrentUser() {
+  return { ...GUEST_USER };
+}
+
+export async function getSessionUser() {
+  if (!isSupabaseConfigured || !supabase) {
+    return null;
+  }
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data?.session?.user) {
+    return null;
+  }
+  return mapSupabaseUser(data.session.user);
+}
+
+function mapSupabaseAuthError(error) {
+  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+
+  if (
+    code === 'user_already_exists' ||
+    message.includes('already registered') ||
+    message.includes('already exists')
+  ) {
+    return 'authErrExists';
+  }
+  if (
+    code === 'invalid_credentials' ||
+    message.includes('invalid login credentials')
+  ) {
+    return 'authErrInvalid';
+  }
+  if (
+    code === 'email_not_confirmed' ||
+    message.includes('email not confirmed')
+  ) {
+    return 'authErrEmailNotConfirmed';
+  }
+  if (
+    code === 'weak_password' ||
+    message.includes('password should be at least')
+  ) {
+    return 'authErrWeakPassword';
+  }
+  if (
+    code.includes('rate_limit') ||
+    message.includes('rate limit') ||
+    message.includes('only request this after')
+  ) {
+    return 'authErrRateLimit';
+  }
+  if (
+    code === 'validation_failed' ||
+    message.includes('unable to validate email') ||
+    message.includes('invalid email')
+  ) {
+    return 'authErrEmail';
+  }
+  if (
+    message.includes('failed to fetch') ||
+    message.includes('networkerror') ||
+    message.includes('network request failed') ||
+    message.includes('load failed')
+  ) {
+    return 'authErrNetwork';
+  }
+
+  return 'authErrGeneric';
 }
 
 export async function registerUser({ name, email, password }) {
-  const cleanName = name.trim();
-  const key = normalizeAccountKey(email);
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('authErrUnavailable');
+  }
 
-  const users = loadUsersMap();
-  if (users[key]) {
+  const cleanName = name.trim();
+  const cleanEmail = email.trim().toLowerCase();
+
+  const { data, error } = await supabase.auth.signUp({
+    email: cleanEmail,
+    password,
+    options: {
+      data: {
+        full_name: cleanName,
+        name: cleanName,
+      },
+    },
+  });
+
+  if (error) {
+    throw new Error(mapSupabaseAuthError(error));
+  }
+
+  // Supabase obfuscates duplicate emails when confirmation is enabled by returning identities: []
+  if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
     throw new Error('authErrExists');
   }
 
-  const salt = generateId('salt');
-  const passwordHash = await hashPassword(password, salt);
-  const id = generateId('usr');
+  if (data?.user && data?.session) {
+    return {
+      user: mapSupabaseUser(data.user),
+      session: data.session,
+      needsEmailConfirmation: false,
+      email: cleanEmail,
+    };
+  }
 
-  users[key] = {
-    id,
-    name: cleanName,
-    accountKey: key,
-    salt,
-    passwordHash,
-    createdAt: new Date().toISOString(),
-  };
+  if (data?.user) {
+    return {
+      user: null,
+      session: null,
+      needsEmailConfirmation: true,
+      email: cleanEmail,
+    };
+  }
 
-  saveUsersMap(users);
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify({ accountKey: key, isGuest: false }));
-
-  return {
-    id,
-    name: cleanName,
-    accountKey: key,
-    isGuest: false,
-  };
+  throw new Error('authErrGeneric');
 }
 
 export async function loginUser({ email, password }) {
-  const key = normalizeAccountKey(email);
-  const users = loadUsersMap();
-  const record = users[key];
-
-  if (!record) {
-    throw new Error('authErrInvalid');
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('authErrUnavailable');
   }
 
-  const candidateHash = await hashPassword(password, record.salt);
-  if (candidateHash !== record.passwordHash) {
-    throw new Error('authErrInvalid');
+  const cleanEmail = email.trim().toLowerCase();
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: cleanEmail,
+    password,
+  });
+
+  if (error) {
+    throw new Error(mapSupabaseAuthError(error));
   }
 
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify({ accountKey: key, isGuest: false }));
+  if (!data?.user) {
+    throw new Error('authErrInvalid');
+  }
 
   return {
-    id: record.id,
-    name: record.name,
-    accountKey: key,
-    isGuest: false,
+    user: mapSupabaseUser(data.user),
+    session: data.session,
   };
 }
 
-export function logoutUser() {
+export async function logoutUser() {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Ignore network sign-out errors so local guest transition still succeeds
+    }
+  }
   return continueAsGuest();
+}
+
+export function subscribeToAuthChanges(onAuthEvent) {
+  if (!isSupabaseConfigured || !supabase) {
+    return () => {};
+  }
+
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    onAuthEvent(event, session);
+  });
+
+  return () => {
+    data?.subscription?.unsubscribe();
+  };
 }

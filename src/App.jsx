@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import AddBookModal from './components/AddBookModal';
 import AuthScreen from './components/AuthScreen';
@@ -12,17 +12,30 @@ import WishlistView from './components/WishlistView';
 import { LITERARY_GENRES } from './data/genres';
 import { translate } from './i18n/translations';
 import {
+  clearLegacyAuthStorage,
+  continueAsGuest,
   getCurrentUser,
   getStoredLanguage,
+  isGuestUser,
   logoutUser,
+  mapSupabaseUser,
   saveStoredLanguage,
+  subscribeToAuthChanges,
 } from './utils/auth';
 import { computeLiveTimerSeconds, getCompletionPercentage } from './utils/formatters';
 import {
+  cancelPendingCloudSync,
   clearLegacySeedStorage,
   clearUserLibrary,
+  fetchUserLibrary,
+  flushPendingCloudSync,
+  hasLocalGuestData,
   loadUserLibrary,
+  mergeLibrariesForMigration,
+  migrateGuestDataToCloud,
   saveUserLibrary,
+  syncUserLibrary,
+  syncUserLibraryImmediate,
 } from './utils/storage';
 
 const BUILT_IN_GENRE_IDS = new Set(LITERARY_GENRES.map((g) => g.id.toLowerCase()));
@@ -30,6 +43,7 @@ const BUILT_IN_GENRE_IDS = new Set(LITERARY_GENRES.map((g) => g.id.toLowerCase()
 export default function App() {
   const [initialBoot] = useState(() => {
     clearLegacySeedStorage();
+    clearLegacyAuthStorage();
     const activeUser = getCurrentUser();
     const fallbackLang = getStoredLanguage();
     const loadedLibrary = loadUserLibrary(activeUser.id, fallbackLang);
@@ -45,6 +59,7 @@ export default function App() {
   const [library, setLibrary] = useState(initialBoot.library);
   const [lang, setLang] = useState(initialBoot.lang);
   const [showAuthScreen, setShowAuthScreen] = useState(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState('idle'); // 'idle' | 'syncing' | 'synced' | 'error'
 
   const [activeTab, setActiveTab] = useState('directory');
   const [selectedReadingId, setSelectedReadingId] = useState(
@@ -58,7 +73,163 @@ export default function App() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
+  const activeAuthUserIdRef = useRef(null);
+  const hydratedCloudUserIdRef = useRef(null);
+  const hydrationInFlightRef = useRef(null);
+  const skipNextSyncRef = useRef(false);
+  const latestLangRef = useRef(lang);
+
+  useEffect(() => {
+    latestLangRef.current = lang;
+  }, [lang]);
+
   const t = (key, vars) => translate(lang, key, vars);
+
+  const showToast = useCallback((key, vars = {}, actionKey = null, onAction = null) => {
+    setToast({ id: Date.now(), key, vars, actionKey, onAction });
+  }, []);
+
+  const applyGuestState = useCallback((guestUser) => {
+    const fallbackLang = latestLangRef.current;
+    const guestLib = loadUserLibrary('guest', fallbackLang);
+    const nextLang = guestLib.language || fallbackLang;
+
+    activeAuthUserIdRef.current = null;
+    hydratedCloudUserIdRef.current = null;
+    skipNextSyncRef.current = true;
+
+    setUser(guestUser);
+    setLibrary({ ...guestLib, language: nextLang });
+    setLang(nextLang);
+    saveStoredLanguage(nextLang);
+    setCloudSyncStatus('idle');
+    setSelectedReadingId(Object.keys(guestLib.reading)[0] || null);
+    setActiveTab('directory');
+    setDetailBook(null);
+    setIsAddModalOpen(false);
+    setPendingPagesModal(null);
+    setShowAuthScreen(false);
+  }, []);
+
+  const hydrateSignedInUser = useCallback(
+    async (authUser, { resetView = true } = {}) => {
+      if (!authUser || isGuestUser(authUser)) {
+        applyGuestState(continueAsGuest());
+        return null;
+      }
+
+      if (
+        hydratedCloudUserIdRef.current === authUser.id &&
+        activeAuthUserIdRef.current === authUser.id
+      ) {
+        setUser(authUser);
+        if (resetView) {
+          setShowAuthScreen(false);
+        }
+        return null;
+      }
+
+      if (hydrationInFlightRef.current?.userId === authUser.id) {
+        return hydrationInFlightRef.current.promise;
+      }
+
+      const promise = (async () => {
+        const currentLang = latestLangRef.current;
+        const hadGuestData = hasLocalGuestData();
+        activeAuthUserIdRef.current = authUser.id;
+        setCloudSyncStatus('syncing');
+
+        let resolvedLibrary;
+        let syncState = 'synced';
+        let migratedGuest = false;
+
+        try {
+          if (hadGuestData) {
+            resolvedLibrary = await migrateGuestDataToCloud(authUser.id, currentLang);
+            migratedGuest = true;
+          } else {
+            resolvedLibrary = await fetchUserLibrary(authUser.id, currentLang);
+          }
+        } catch {
+          const cachedAccount = loadUserLibrary(authUser.id, currentLang);
+          resolvedLibrary = hadGuestData
+            ? mergeLibrariesForMigration(cachedAccount, loadUserLibrary('guest', currentLang))
+            : cachedAccount;
+          syncState = 'error';
+        }
+
+        // Guard against sign-out occurring while async hydration was pending
+        if (activeAuthUserIdRef.current !== authUser.id) {
+          return null;
+        }
+
+        hydratedCloudUserIdRef.current = authUser.id;
+        skipNextSyncRef.current = true;
+
+        setUser(authUser);
+        setLibrary({ ...resolvedLibrary, language: currentLang });
+        setCloudSyncStatus(syncState);
+        setSelectedReadingId(Object.keys(resolvedLibrary.reading)[0] || null);
+
+        if (resetView) {
+          setActiveTab('directory');
+          setDetailBook(null);
+          setIsAddModalOpen(false);
+          setPendingPagesModal(null);
+          setToast(null);
+          setShowAuthScreen(false);
+        }
+
+        if (migratedGuest) {
+          showToast('toastMigratedGuest');
+        }
+
+        return resolvedLibrary;
+      })();
+
+      hydrationInFlightRef.current = { userId: authUser.id, promise };
+      try {
+        return await promise;
+      } finally {
+        if (hydrationInFlightRef.current?.promise === promise) {
+          hydrationInFlightRef.current = null;
+        }
+      }
+    },
+    [applyGuestState, showToast]
+  );
+
+  // Restore active Supabase session automatically across web and Android APK startup
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges((event, session) => {
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (session?.user) {
+          hydrateSignedInUser(mapSupabaseUser(session.user), {
+            resetView: event === 'SIGNED_IN',
+          }).catch(() => {});
+        } else if (activeAuthUserIdRef.current !== null) {
+          applyGuestState(continueAsGuest());
+        }
+        return;
+      }
+
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        if (session?.user) {
+          setUser(mapSupabaseUser(session.user));
+        }
+        return;
+      }
+
+      if (event === 'SIGNED_OUT') {
+        if (activeAuthUserIdRef.current !== null) {
+          cancelPendingCloudSync();
+          applyGuestState(continueAsGuest());
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [applyGuestState, hydrateSignedInUser]);
 
   // Sync HTML lang attribute & document title
   useEffect(() => {
@@ -67,11 +238,49 @@ export default function App() {
     saveStoredLanguage(lang);
   }, [lang]);
 
-  // Persist current user's library (strictly under honey_book_guest_data in Guest Mode)
+  // Persist Guest library locally or debounce-sync authenticated library to Supabase
   useEffect(() => {
     if (!user?.id) return;
-    saveUserLibrary(user.id, library);
-  }, [user?.id, library]);
+
+    if (isGuestUser(user)) {
+      saveUserLibrary('guest', library);
+      return;
+    }
+
+    if (hydratedCloudUserIdRef.current !== user.id) {
+      return;
+    }
+
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false;
+      saveUserLibrary(user.id, library);
+      return;
+    }
+
+    syncUserLibrary(user.id, library, {
+      onSyncStart: () => setCloudSyncStatus('syncing'),
+      onSyncSuccess: () => setCloudSyncStatus('synced'),
+      onSyncError: () => setCloudSyncStatus('error'),
+    }).catch(() => {});
+  }, [user, library]);
+
+  // Flush any buffered cloud changes if user closes tab or backgrounds Android WebView
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPendingCloudSync();
+      }
+    };
+    const handlePageHide = () => {
+      flushPendingCloudSync();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, []);
 
   // Lock background page scroll while any modal is open
   useEffect(() => {
@@ -136,10 +345,6 @@ export default function App() {
     [library]
   );
 
-  const showToast = (key, vars = {}, actionKey = null, onAction = null) => {
-    setToast({ id: Date.now(), key, vars, actionKey, onAction });
-  };
-
   const handleChangeLang = (nextLang) => {
     const resolved = nextLang === 'es' ? 'es' : 'en';
     setLang(resolved);
@@ -149,37 +354,23 @@ export default function App() {
     );
   };
 
-  const handleAuthenticated = (authenticatedUser) => {
-    const userLib = loadUserLibrary(authenticatedUser.id, lang);
-    const nextLang = userLib.language || lang;
-    setUser(authenticatedUser);
-    setLibrary({ ...userLib, language: nextLang });
-    setLang(nextLang);
-    saveStoredLanguage(nextLang);
-    setSelectedReadingId(Object.keys(userLib.reading)[0] || null);
-    setActiveTab('directory');
-    setDetailBook(null);
-    setIsAddModalOpen(false);
-    setPendingPagesModal(null);
-    setToast(null);
-    setShowAuthScreen(false);
+  const handleAuthenticated = async (authenticatedUser) => {
+    if (!authenticatedUser || isGuestUser(authenticatedUser)) {
+      applyGuestState(continueAsGuest());
+      return;
+    }
+    await hydrateSignedInUser(authenticatedUser, { resetView: true });
   };
 
-  const handleLogout = () => {
-    const guestUser = logoutUser();
-    const guestLib = loadUserLibrary(guestUser.id, lang);
-    const nextLang = guestLib.language || lang;
-    setUser(guestUser);
-    setLibrary({ ...guestLib, language: nextLang });
-    setLang(nextLang);
-    saveStoredLanguage(nextLang);
-    setSelectedReadingId(Object.keys(guestLib.reading)[0] || null);
-    setActiveTab('directory');
-    setDetailBook(null);
-    setIsAddModalOpen(false);
-    setPendingPagesModal(null);
+  const handleLogout = async () => {
+    if (!isGuestUser(user)) {
+      await flushPendingCloudSync();
+    }
+    activeAuthUserIdRef.current = null;
+    hydratedCloudUserIdRef.current = null;
+    const guestUser = await logoutUser();
+    applyGuestState(guestUser);
     setToast(null);
-    setShowAuthScreen(false);
   };
 
   const ensureBookInList = (booksList, bookObj) => {
@@ -530,17 +721,29 @@ export default function App() {
     showToast('toastReviewSaved');
   };
 
-  const handleClearLibrary = () => {
+  const handleClearLibrary = async () => {
     if (!confirmClear) {
       setConfirmClear(true);
       return;
     }
+    cancelPendingCloudSync(user?.id);
     const fresh = clearUserLibrary(user?.id, lang);
+    skipNextSyncRef.current = true;
     setLibrary(fresh);
     setSelectedReadingId(null);
     setConfirmClear(false);
     setActiveTab('directory');
     showToast('toastLibraryCleared');
+
+    if (!isGuestUser(user)) {
+      setCloudSyncStatus('syncing');
+      try {
+        await syncUserLibraryImmediate(user.id, fresh);
+        setCloudSyncStatus('synced');
+      } catch {
+        setCloudSyncStatus('error');
+      }
+    }
   };
 
   if (showAuthScreen) {
@@ -556,6 +759,14 @@ export default function App() {
   const resolvedDetailBook = detailBook
     ? library.books.find((b) => b.id === detailBook.id) || detailBook
     : null;
+
+  const footerStatusText = isGuestUser(user)
+    ? t('footerPrivacy')
+    : cloudSyncStatus === 'syncing'
+    ? t('footerSyncing')
+    : cloudSyncStatus === 'error'
+    ? t('footerSyncError')
+    : t('footerPrivacyCloud');
 
   return (
     <div className="app-shell">
@@ -632,7 +843,7 @@ export default function App() {
       </main>
 
       <footer className="app-footer">
-        <span>Honey Book · {t('footerPrivacy')}</span>
+        <span>Honey Book · {footerStatusText}</span>
         <button
           type="button"
           id="clear-library-btn"

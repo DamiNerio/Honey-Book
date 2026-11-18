@@ -3,6 +3,8 @@ import { translate } from '../i18n/translations';
 import { continueAsGuest, loginUser, registerUser } from '../utils/auth';
 import { BrandMark } from './Icons';
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [name, setName] = useState('');
@@ -10,6 +12,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorKey, setErrorKey] = useState('');
+  const [notice, setNotice] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const t = (key, vars) => translate(lang, key, vars);
@@ -17,6 +20,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
   const switchMode = (nextMode) => {
     setMode(nextMode);
     setErrorKey('');
+    setNotice(null);
     setPassword('');
     setConfirmPassword('');
   };
@@ -29,6 +33,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorKey('');
+    setNotice(null);
 
     const cleanName = name.trim();
     const cleanEmail = email.trim();
@@ -37,7 +42,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
       setErrorKey('authErrName');
       return;
     }
-    if (cleanEmail.length < 3) {
+    if (!EMAIL_REGEX.test(cleanEmail)) {
       setErrorKey('authErrEmail');
       return;
     }
@@ -52,13 +57,26 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
 
     setIsSubmitting(true);
     try {
-      const user =
-        mode === 'signup'
-          ? await registerUser({ name: cleanName, email: cleanEmail, password })
-          : await loginUser({ email: cleanEmail, password });
-      onAuthenticated(user);
+      if (mode === 'signup') {
+        const result = await registerUser({
+          name: cleanName,
+          email: cleanEmail,
+          password,
+        });
+        if (result.needsEmailConfirmation) {
+          setMode('login');
+          setPassword('');
+          setConfirmPassword('');
+          setNotice({ key: 'authConfirmEmailNotice', vars: { email: result.email } });
+          return;
+        }
+        await onAuthenticated(result.user);
+      } else {
+        const result = await loginUser({ email: cleanEmail, password });
+        await onAuthenticated(result.user);
+      }
     } catch (err) {
-      setErrorKey(err?.message || 'authErrInvalid');
+      setErrorKey(err?.message || 'authErrGeneric');
     } finally {
       setIsSubmitting(false);
     }
@@ -112,6 +130,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
               id="auth-guest-btn"
               className="btn btn--primary btn--full"
               onClick={handleContinueGuest}
+              disabled={isSubmitting}
             >
               {t('authContinueGuest')}
             </button>
@@ -130,6 +149,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
               aria-selected={mode === 'login'}
               className={`auth-tabs__btn ${mode === 'login' ? 'is-active' : ''}`}
               onClick={() => switchMode('login')}
+              disabled={isSubmitting}
             >
               {t('authTabLogin')}
             </button>
@@ -140,6 +160,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
               aria-selected={mode === 'signup'}
               className={`auth-tabs__btn ${mode === 'signup' ? 'is-active' : ''}`}
               onClick={() => switchMode('signup')}
+              disabled={isSubmitting}
             >
               {t('authTabSignup')}
             </button>
@@ -156,6 +177,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
                   onChange={(e) => setName(e.target.value)}
                   placeholder={t('authNamePlaceholder')}
                   autoComplete="name"
+                  disabled={isSubmitting}
                 />
               </div>
             )}
@@ -164,11 +186,13 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
               <label htmlFor="auth-email-input">{t('authEmailLabel')}</label>
               <input
                 id="auth-email-input"
-                type="text"
+                type="email"
+                inputMode="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t('authEmailPlaceholder')}
-                autoComplete="username"
+                autoComplete="email"
+                disabled={isSubmitting}
               />
             </div>
 
@@ -181,6 +205,7 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t('authPasswordPlaceholder')}
                 autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                disabled={isSubmitting}
               />
             </div>
 
@@ -194,8 +219,15 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder={t('authConfirmPasswordPlaceholder')}
                   autoComplete="new-password"
+                  disabled={isSubmitting}
                 />
               </div>
+            )}
+
+            {notice && (
+              <p id="auth-notice-msg" className="form-notice" role="status">
+                {t(notice.key, notice.vars)}
+              </p>
             )}
 
             {errorKey && (
@@ -210,7 +242,13 @@ export default function AuthScreen({ lang, onChangeLang, onAuthenticated }) {
               className="btn btn--violet-outline btn--full"
               disabled={isSubmitting}
             >
-              {mode === 'login' ? t('authLoginBtn') : t('authSignupBtn')}
+              {isSubmitting
+                ? mode === 'login'
+                  ? t('authSubmittingLogin')
+                  : t('authSubmittingSignup')
+                : mode === 'login'
+                ? t('authLoginBtn')
+                : t('authSignupBtn')}
             </button>
           </form>
         </div>

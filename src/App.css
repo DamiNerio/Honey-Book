@@ -1869,6 +1869,16 @@
   font-size: 13px;
 }
 
+.form-notice {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--violet-soft);
+  border: 1px solid var(--violet-border);
+  color: var(--violet-200);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;
